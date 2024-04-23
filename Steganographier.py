@@ -20,12 +20,18 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 import pyzipper
 import threading
 # import subprocess
+import string
+
+def generate_random_filename(length=16):
+    """生成指定长度的随机文件名, 不带扩展名"""
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
 
 class SteganographierGUI:
     def __init__(self):
 	    # GUI实现部分
         self.root = TkinterDnD.Tk()
-        self.root.title("隐写者 Ver.1.0.0 GUI 作者: 层林尽染")
+        self.root.title("隐写者 Ver.1.0.1 GUI 作者: 层林尽染")
         self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
                 
         self.password_label = tk.Label(self.root, text="Password:")
@@ -167,7 +173,7 @@ class SteganographierGUI:
         video_path = os.path.join(self.video_folder_path, video_file)
         
         # 隐写临时文件
-        zip_file_path = os.path.splitext(file_path)[0] + ".zip"
+        zip_file_path = os.path.join(os.path.dirname(file_path) ,generate_random_filename() + ".zip")
         
         # 计算要压缩的文件总大小
         total_size = 0
@@ -184,7 +190,7 @@ class SteganographierGUI:
         
         with pyzipper.AESZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
             zip_file.setpassword(password.encode())
-            self.log(f"Compressing file: {zip_file_path}")
+            self.log(f"Compressing file: {file_path}")
             
             # 假如被隐写的文件是一个文件夹
             if os.path.isdir(file_path):
@@ -267,6 +273,8 @@ class SteganographierGUI:
                 self.log(f"ZIP file extracted: {not os.path.exists(zip_path)}")
                 
             except (pyzipper.BadZipFile, ValueError):
+                # 删除ZIP文件
+                os.remove(zip_path)
                 self.log(f"文件 {file_path} 不存在隐写内容。")
             
         except pyzipper.BadZipFile:
