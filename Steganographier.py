@@ -298,7 +298,7 @@ class SteganographierGUI:
     def reveal_file(self, file_path, password):
         
         # 解除MP4隐写的逻辑
-        if self.type_option_var == 'mp4':
+        if self.type_option_var.get() == 'mp4':
             try:
                 # 读取文件数据
                 self.log(f"Revealing file: {file_path}")
