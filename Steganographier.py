@@ -51,10 +51,10 @@ class SteganographierGUI:
         
         # 创建一个变量用于存储下拉菜单的选项
         self.type_option_var = tk.StringVar()
-        self.type_option_var.set("mkv")  # 设置文件类型默认值
+        self.type_option_var.set("mp4")  # 设置文件类型默认值
         self.type_option_label = tk.Label(params_frame, text="Output Type:")
         self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
-        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mkv", "mp4") # 下拉菜单
+        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv") # 下拉菜单
         self.type_option.config(width=8)  # 设置宽度
         self.type_option.pack(side=tk.LEFT, padx=5, pady=5)
         
