@@ -32,7 +32,7 @@ class SteganographierGUI:
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.2 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.0.3 GUI 作者: 层林尽染"
         self.create_widgets() # GUI实现部分
         
     # 窗口控件初始化方法
@@ -154,16 +154,24 @@ class SteganographierGUI:
 
         hide_file_paths = self.hide_text.get("1.0", tk.END).strip().split("\n")
         reveal_file_paths = self.reveal_text.get("1.0", tk.END).strip().split("\n")
+        if not any(hide_file_paths) and not any(reveal_file_paths):
+            messagebox.showwarning("Warning", "请输入或拖入文件.")
+            # 结束后恢复按钮
+            self.start_button.configure(state=tk.NORMAL)
+            self.clear_button.configure(state=tk.NORMAL)
+            return
         
         total_files = len(hide_file_paths) + len(reveal_file_paths)
         processed_files = 0
         
+        # 1. 隐写流程
         for file_path in hide_file_paths:
             if file_path:
                 self.hide_file(file_path, password)
                 processed_files += 1
                 self.update_progress(processed_files, total_files)
         
+        # 2. 解除隐写流程
         for file_path in reveal_file_paths:
             if file_path:
                 self.reveal_file(file_path, password)
@@ -206,7 +214,7 @@ class SteganographierGUI:
             self.start_button.configure(state=tk.NORMAL)
             self.clear_button.configure(state=tk.NORMAL)
             return
-        
+
         # 随机选择一个外壳MP4文件用来隐写
         video_file = random.choice(video_files)
         cover_video_path = os.path.join(self.video_folder_path, video_file)
@@ -233,11 +241,14 @@ class SteganographierGUI:
             
             # 假如被隐写的文件是一个文件夹
             if os.path.isdir(file_path):
-                # 则隐写其下所有文件
+                # 定义总的顶层文件夹名为原文件夹的名字
+                root_folder = os.path.basename(file_path)
+                # 然后隐写其下所有文件
                 for root, dirs, files in os.walk(file_path):
                     for file in files:
                         file_full_path = os.path.join(root, file)
-                        arcname = os.path.relpath(file_full_path, start=file_path)
+                        # 在原有的相对路径前加上顶层文件夹名
+                        arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=file_path))
                         zip_file.write(file_full_path, arcname)
                         
                         # 更新已处理的大小并更新进度条
@@ -377,20 +388,26 @@ class SteganographierGUI:
 
                     # 使用密码解压ZIP文件
                     if attachments_name.endswith('.zip'):
-                        zip_path = output_path
-                        self.log(f"Extracting ZIP file: {zip_path}")
-                        with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
-                            zip_file.extractall(os.path.dirname(file_path), pwd=password.encode())
-                        
-                        # 删除ZIP文件
-                        os.remove(zip_path)
+                        try:
+                            zip_path = output_path
+                            self.log(f"Extracting ZIP file: {zip_path}")
+                            with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
+                                zip_file.extractall(os.path.dirname(file_path), pwd=password.encode())
+                            
+                            # 解压后删除ZIP文件
+                            os.remove(zip_path)
                     
-                    # 删除隐写MP4文件
+                        except RuntimeError as e:
+                            # 这里处理密码错误的情况
+                            self.log(f"解压失败，错误信息: {e}")
+
+                    # 解压后删除隐写MP4文件
                     os.remove(file_path)
                     
                     self.log(f"提取附件 {attachments_name} 成功")
                 except subprocess.CalledProcessError as e:
                     self.log(f"提取附件 {attachments_name} 时出错: {e}")
+
             else:
                 self.log("该 MKV 文件中没有可提取的附件。")
 
