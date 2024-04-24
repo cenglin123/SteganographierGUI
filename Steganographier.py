@@ -19,7 +19,7 @@ from tkinter import  messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import pyzipper
 import threading
-# import subprocess
+import subprocess
 import string
 
 def generate_random_filename(length=16):
@@ -29,19 +29,38 @@ def generate_random_filename(length=16):
 
 class SteganographierGUI:
     def __init__(self):
-	    # GUI实现部分
+        self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
+        self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
+        self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
+        self.title = "隐写者 Ver.1.0.2 GUI 作者: 层林尽染"
+        self.create_widgets() # GUI实现部分
+        
+    # 窗口控件初始化方法
+    def create_widgets(self):
         self.root = TkinterDnD.Tk()
-        self.root.title("隐写者 Ver.1.0.1 GUI 作者: 层林尽染")
+        self.root.title(self.title)
         self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
-                
-        self.password_label = tk.Label(self.root, text="Password:")
-        self.password_label.pack()
-        self.password_entry = tk.Entry(self.root, show="*")
-        self.password_entry.pack()
+        
+        # 参数设定部分
+        params_frame = tk.Frame(self.root)
+        params_frame.pack(pady=5)
+        self.password_label = tk.Label(params_frame, text="Password:")
+        self.password_label.pack(side=tk.LEFT, padx=5)
+        self.password_entry = tk.Entry(params_frame, width=25, show="*")
+        self.password_entry.pack(side=tk.LEFT, padx=10)
+        
+        # 创建一个变量用于存储下拉菜单的选项
+        self.type_option_var = tk.StringVar()
+        self.type_option_var.set("mkv")  # 设置文件类型默认值
+        self.type_option_label = tk.Label(params_frame, text="Output Type:")
+        self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
+        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mkv", "mp4") # 下拉菜单
+        self.type_option.config(width=8)  # 设置宽度
+        self.type_option.pack(side=tk.LEFT, padx=5, pady=5)
         
         self.hide_frame = tk.Frame(self.root, bd=2, relief=tk.GROOVE)
         self.hide_frame.pack(pady=10)
-        self.hide_label = tk.Label(self.hide_frame, text="在此窗口中输入/拖入需要隐写的文件/文件夹:") 
+        self.hide_label = tk.Label(self.hide_frame, text="在此窗口中批量输入/拖入需要隐写的文件/文件夹:") 
         self.hide_label.pack()
         self.hide_text = tk.Text(self.hide_frame, width=65, height=5)
         self.hide_text.pack()
@@ -50,7 +69,7 @@ class SteganographierGUI:
         
         self.reveal_frame = tk.Frame(self.root, bd=2, relief=tk.GROOVE)
         self.reveal_frame.pack(pady=10)
-        self.reveal_label = tk.Label(self.reveal_frame, text="在此窗口中输入/拖入需要解除隐写的MP4文件:")
+        self.reveal_label = tk.Label(self.reveal_frame, text="在此窗口中批量输入/拖入需要解除隐写的MP4/MKV文件:")
         self.reveal_label.pack()
         self.reveal_text = tk.Text(self.reveal_frame, width=65, height=5)
         self.reveal_text.pack()
@@ -82,7 +101,18 @@ class SteganographierGUI:
         self.progress.pack(pady=10)
         
         self.root.mainloop()
-        
+
+    def check_tools_existence(self):
+        missing_tools = []
+        for tool in [self.mkvmerge_exe, self.mkvinfo_exe, self.mkvextract_exe]:
+            if not os.path.exists(tool):
+                missing_tools.append(os.path.basename(tool))
+
+        if missing_tools:
+            messagebox.showwarning("Warning", "以下工具文件缺失，请在tools文件夹中添加后继续: " + ", ".join(missing_tools))
+            return False
+        return True
+
     def log(self, message):
         self.log_text.configure(state=tk.NORMAL, fg="grey")
         self.log_text.insert(tk.END, message + "\n")
@@ -116,6 +146,12 @@ class SteganographierGUI:
             self.clear_button.configure(state=tk.NORMAL)
             return
         
+        if not self.check_tools_existence():
+            # 结束后恢复按钮
+            self.start_button.configure(state=tk.NORMAL)
+            self.clear_button.configure(state=tk.NORMAL)
+            return
+
         hide_file_paths = self.hide_text.get("1.0", tk.END).strip().split("\n")
         reveal_file_paths = self.reveal_text.get("1.0", tk.END).strip().split("\n")
         
@@ -166,14 +202,17 @@ class SteganographierGUI:
         video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
         if not video_files:
             messagebox.showwarning("Warning", "cover_video 文件夹下没有文件，请添加文件后继续.")
+            # 结束后恢复按钮
+            self.start_button.configure(state=tk.NORMAL)
+            self.clear_button.configure(state=tk.NORMAL)
             return
         
         # 随机选择一个外壳MP4文件用来隐写
         video_file = random.choice(video_files)
-        video_path = os.path.join(self.video_folder_path, video_file)
+        cover_video_path = os.path.join(self.video_folder_path, video_file)
         
-        # 隐写临时文件
-        zip_file_path = os.path.join(os.path.dirname(file_path) ,generate_random_filename() + ".zip")
+        # 创建隐写的临时zip文件
+        zip_file_path = os.path.join(os.path.splitext(file_path)[0] + "_hidden.zip")
         
         # 计算要压缩的文件总大小
         total_size = 0
@@ -212,76 +251,150 @@ class SteganographierGUI:
                 # 否则只隐写该文件
                 zip_file.write(file_path, os.path.basename(file_path))
                 
-        
-        # 隐写文件的逻辑
-        output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
-        self.log(f"Output file: {output_file}")
-        total_size = os.path.getsize(video_path) + os.path.getsize(zip_file_path)
-        processed_size = 0
-        with open(video_path, "rb") as file1, open(zip_file_path, "rb") as file2, open(output_file, "wb") as output:
-            self.log(f"Hiding file: {file_path}")
-            for chunk in self.read_in_chunks(file1):
-                output.write(chunk)
-                processed_size += len(chunk)
-                self.update_progress(processed_size, total_size)
-            
-            for chunk in self.read_in_chunks(file2):
-                output.write(chunk)
-                processed_size += len(chunk)
-                self.update_progress(processed_size, total_size)
+        # 1. 隐写MP4文件的逻辑
+        if self.type_option_var.get() == 'mp4':
+            output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
+            self.log(f"Output file: {output_file}")
+            total_size = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
+            processed_size = 0
+            with open(cover_video_path, "rb") as file1, open(zip_file_path, "rb") as file2, open(output_file, "wb") as output:
+                self.log(f"Hiding file: {file_path}")
+                for chunk in self.read_in_chunks(file1):
+                    output.write(chunk)
+                    processed_size += len(chunk)
+                    self.update_progress(processed_size, total_size)
                 
-        # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
-        # if os.name == 'nt':  # Windows
-        #     cmd = f'copy /b "{video_path}" + "{zip_file_path}" "{output_file}"'
-        # else:  # For Unix-like systems
-        #     cmd = f'cat "{video_path}" "{zip_file_path}" > "{output_file}"'
-        # subprocess.run(cmd, shell=True, check=True)
+                for chunk in self.read_in_chunks(file2):
+                    output.write(chunk)
+                    processed_size += len(chunk)
+                    self.update_progress(processed_size, total_size)
+                    
+            # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
+            # if os.name == 'nt':  # Windows
+            #     cmd = f'copy /b "{cover_video_path}" + "{zip_file_path}" "{output_file}"'
+            # else:  # For Unix-like systems
+            #     cmd = f'cat "{cover_video_path}" "{zip_file_path}" > "{output_file}"'
+            # subprocess.run(cmd, shell=True, check=True)
+        
+        # 2. 隐写mkv文件的逻辑
+        elif self.type_option_var.get() == 'mkv':
+            output_file = os.path.splitext(file_path)[0] + "_hidden.mkv"
+            self.log(f"Output file: {output_file}")
+            cmd = [
+                self.mkvmerge_exe, '-o',
+                output_file, cover_video_path,
+                '--attach-file', zip_file_path,
+            ]
+            self.log(f"Hiding file: {file_path}")
+            subprocess.run(cmd, check=True)
         
         # 删除临时zip文件
         os.remove(zip_file_path)
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
-        
+    
+    
     # 解除隐写的方法      
     def reveal_file(self, file_path, password):
-        try:
-            # 读取文件数据
-            self.log(f"Revealing file: {file_path}")
-            with open(file_path, "rb") as file:
-                file_data = file.read()
-            
-            # 尝试提取ZIP数据
-            try:
-                zip_data = file_data[len(file_data) - os.path.getsize(file_path):]
-                
-                # 将ZIP文件写入硬盘
-                zip_path = os.path.splitext(file_path)[0] + "_extracted.zip"
-                with open(zip_path, "wb") as file:
-                    file.write(zip_data)
-                
-                # 使用密码解压ZIP文件
-                self.log(f"Extracted ZIP file: {zip_path}")
-                with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
-                    zip_file.extractall(os.path.dirname(file_path), pwd=password.encode())
-                
-                # 删除ZIP文件
-                os.remove(zip_path)
-                
-                # 删除隐写MP4文件
-                os.remove(file_path)
-                
-                self.log(f"ZIP file extracted: {not os.path.exists(zip_path)}")
-                
-            except (pyzipper.BadZipFile, ValueError):
-                # 删除ZIP文件
-                os.remove(zip_path)
-                self.log(f"文件 {file_path} 不存在隐写内容。")
-            
-        except pyzipper.BadZipFile:
-            self.log(f"文件 {file_path} 不存在隐写内容或密码错误。")
-        except Exception as e:
-            self.log(f"解除隐写时发生错误: {str(e)}")
         
+        # 解除MP4隐写的逻辑
+        if self.type_option_var == 'mp4':
+            try:
+                # 读取文件数据
+                self.log(f"Revealing file: {file_path}")
+                with open(file_path, "rb") as file:
+                    file_data = file.read()
+                
+                # 尝试提取ZIP数据
+                try:
+                    zip_data = file_data[len(file_data) - os.path.getsize(file_path):]
+                    
+                    # 将ZIP文件写入硬盘
+                    zip_path = os.path.splitext(file_path)[0] + "_extracted.zip"
+                    with open(zip_path, "wb") as file:
+                        file.write(zip_data)
+                    
+                    # 使用密码解压ZIP文件
+                    self.log(f"Extracted ZIP file: {zip_path}")
+                    with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
+                        zip_file.extractall(os.path.dirname(file_path), pwd=password.encode())
+                    
+                    # 删除ZIP文件
+                    os.remove(zip_path)
+                    
+                    # 删除隐写MP4文件
+                    os.remove(file_path)
+                    
+                    self.log(f"ZIP file extracted: {not os.path.exists(zip_path)}")
+                    
+                except (pyzipper.BadZipFile, ValueError):
+                    # 删除ZIP文件
+                    os.remove(zip_path)
+                    self.log(f"文件 {file_path} 不存在隐写内容。")
+                
+            except pyzipper.BadZipFile:
+                self.log(f"文件 {file_path} 不存在隐写内容或密码错误。")
+            except Exception as e:
+                self.log(f"解除隐写时发生错误: {str(e)}")
+        
+        # 解除mkv文件隐写的逻辑
+        elif self.type_option_var.get() == 'mkv':
+            # 获取mkv附件id函数
+            def get_attachment_name(file_path):
+                cmd = [self.mkvinfo_exe, file_path]
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+                    lines = result.stdout.splitlines()
+                    for idx, line in enumerate(lines):
+                        if "MIME" in line:
+                            parts = lines[idx-1].split(':')
+                            attachments_name = parts[1].strip().split()[-1] # 附件的实际名称
+                except Exception as e:
+                    self.log(f"获取附件时出错: {e}")
+                
+                return attachments_name
+            
+            # 提取mkv附件
+            def extract_attachment(file_path, output_path):
+                cmd = [
+                    self.mkvextract_exe, 'attachments',
+                    file_path,
+                    f'1:{output_path}'
+                ]
+                try:
+                    subprocess.run(cmd, check=True)
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"提取附件时出错: {e}")   
+                    
+            # 获取附件文件名
+            attachments_name = get_attachment_name(file_path)
+            if attachments_name:
+                output_path = os.path.join(os.path.dirname(file_path), attachments_name)
+                self.log(f"Mkvextracting attachment file: {output_path}")
+                # 提取附件
+                try:
+                    extract_attachment(file_path, output_path)
+
+                    # 使用密码解压ZIP文件
+                    if attachments_name.endswith('.zip'):
+                        zip_path = output_path
+                        self.log(f"Extracting ZIP file: {zip_path}")
+                        with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
+                            zip_file.extractall(os.path.dirname(file_path), pwd=password.encode())
+                        
+                        # 删除ZIP文件
+                        os.remove(zip_path)
+                    
+                    # 删除隐写MP4文件
+                    os.remove(file_path)
+                    
+                    self.log(f"提取附件 {attachments_name} 成功")
+                except subprocess.CalledProcessError as e:
+                    self.log(f"提取附件 {attachments_name} 时出错: {e}")
+            else:
+                self.log("该 MKV 文件中没有可提取的附件。")
+
+
 if __name__ == "__main__":
     
     # 关于程序执行路径的问题
