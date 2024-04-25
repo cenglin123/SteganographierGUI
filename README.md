@@ -76,23 +76,6 @@ https://github.com/cenglin123/SteganographierGUI/assets/167851968/e632d2da-1e06-
 
 **密码保护**：**必须**输入密码才能进行隐写或解隐写操作。
 
-**进度显示**：通过进度条显示当前操作的完成度，提供直观的反馈。
-
-  
-
-文件路径结构
-
-![](obsidian_img/Clip_2024-04-25_11-30-04.png)
-
-└─Steganographier-文件隐写程序  
-│ ├─隐写者.exe 11.88 MB -->主程序  
-│ ├─cover_video --> 放置伪装外壳MP4文件  
-│ │ ├─SpongeBob SquarePants S01E01A Help Wanted.mp4 44.91 MB  
-│ │ ├─SpongeBob SquarePants S01E01B Reef Blower.mp4 21.21 MB  
-│ │ └─SpongeBob SquarePants S01E01C Tea at the Treedome.mp4 64.50 MB  
-│ ├─modules  
-│ │ └─favicon.ico 24.93 KB --> icon
-
   
 
 ## 5. 不足与展望
