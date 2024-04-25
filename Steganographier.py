@@ -232,6 +232,18 @@ class SteganographierGUI:
         else:
             total_size = os.path.getsize(file_path)
         
+        # mkv隐写单文件上限2GB
+        if self.type_option_var.get() == 'mkv':
+            if total_size > 2 * 1024 * 1024 * 1024:  # 2GB
+                messagebox.showwarning(
+                    "Warning",
+                    f"mkv文件不能一次性隐写大小超过 2GB 的文件，此文件大小为 {total_size / (1024 * 1024 * 1024):.2f} GB. 请改换mp4模式或者分卷处理。"
+                )
+                # 结束后恢复按钮
+                self.start_button.configure(state=tk.NORMAL)
+                self.clear_button.configure(state=tk.NORMAL)
+                return
+
         # 初始化已处理的大小为0
         processed_size = 0
         
@@ -261,44 +273,66 @@ class SteganographierGUI:
                 
                 # 否则只隐写该文件
                 zip_file.write(file_path, os.path.basename(file_path))
-                
-        # 1. 隐写MP4文件的逻辑
-        if self.type_option_var.get() == 'mp4':
-            output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
-            self.log(f"Output file: {output_file}")
-            total_size = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
-            processed_size = 0
-            with open(cover_video_path, "rb") as file1, open(zip_file_path, "rb") as file2, open(output_file, "wb") as output:
-                self.log(f"Hiding file: {file_path}")
-                for chunk in self.read_in_chunks(file1):
-                    output.write(chunk)
-                    processed_size += len(chunk)
-                    self.update_progress(processed_size, total_size)
-                
-                for chunk in self.read_in_chunks(file2):
-                    output.write(chunk)
-                    processed_size += len(chunk)
-                    self.update_progress(processed_size, total_size)
+        
+        try:        
+            # 1. 隐写MP4文件的逻辑
+            if self.type_option_var.get() == 'mp4':
+                output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
+                self.log(f"Output file: {output_file}")
+                total_size = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
+                processed_size = 0
+                with open(cover_video_path, "rb") as file1, open(zip_file_path, "rb") as file2, open(output_file, "wb") as output:
+                    self.log(f"Hiding file: {file_path}")
+                    for chunk in self.read_in_chunks(file1):
+                        output.write(chunk)
+                        processed_size += len(chunk)
+                        self.update_progress(processed_size, total_size)
                     
-            # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
-            # if os.name == 'nt':  # Windows
-            #     cmd = f'copy /b "{cover_video_path}" + "{zip_file_path}" "{output_file}"'
-            # else:  # For Unix-like systems
-            #     cmd = f'cat "{cover_video_path}" "{zip_file_path}" > "{output_file}"'
-            # subprocess.run(cmd, shell=True, check=True)
-        
-        # 2. 隐写mkv文件的逻辑
-        elif self.type_option_var.get() == 'mkv':
-            output_file = os.path.splitext(file_path)[0] + "_hidden.mkv"
-            self.log(f"Output file: {output_file}")
-            cmd = [
-                self.mkvmerge_exe, '-o',
-                output_file, cover_video_path,
-                '--attach-file', zip_file_path,
-            ]
-            self.log(f"Hiding file: {file_path}")
-            subprocess.run(cmd, check=True)
-        
+                    for chunk in self.read_in_chunks(file2):
+                        output.write(chunk)
+                        processed_size += len(chunk)
+                        self.update_progress(processed_size, total_size)
+                        
+                # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
+                # if os.name == 'nt':  # Windows
+                #     cmd = f'copy /b "{cover_video_path}" + "{zip_file_path}" "{output_file}"'
+                # else:  # For Unix-like systems
+                #     cmd = f'cat "{cover_video_path}" "{zip_file_path}" > "{output_file}"'
+                # subprocess.run(cmd, shell=True, check=True)
+            
+            # 2. 隐写mkv文件的逻辑
+            elif self.type_option_var.get() == 'mkv':
+                total_file_size = os.path.getsize(file_path)
+                if total_file_size > 2 * 1024 * 1024 * 1024:  # 2GB
+                    messagebox.showwarning(
+                        "Warning",
+                        f"mkv文件不能一次性隐写大小超过2GB的文件，此文件大小为{total_file_size / (1024 * 1024 * 1024):.2f} GB. 请改换mp4模式或者分卷处理。"
+                    )
+                    # 结束后恢复按钮
+                    self.start_button.configure(state=tk.NORMAL)
+                    self.clear_button.configure(state=tk.NORMAL)
+                    return
+                
+                output_file = os.path.splitext(file_path)[0] + "_hidden.mkv"
+                self.log(f"Output file: {output_file}")
+                cmd = [
+                    self.mkvmerge_exe, '-o',
+                    output_file, cover_video_path,
+                    '--attach-file', zip_file_path,
+                ]
+                self.log(f"Hiding file: {file_path}")
+                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+                if result.returncode != 0:
+                    raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
+
+        except subprocess.CalledProcessError as cpe:
+            self.log(f"隐写时发生错误: {str(cpe)}")
+            self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
+            self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
+
+        except Exception as e:
+            self.log(f"隐写时发生未预料的错误: {str(e)}")
+
         # 删除临时zip文件
         os.remove(zip_file_path)
 
