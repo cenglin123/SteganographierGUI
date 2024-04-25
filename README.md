@@ -61,8 +61,8 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 ![3b26f5f267400432709dbef344859d18.webp](https://file.cangku.moe/images/3b26f5f267400432709dbef344859d18.webp)
 
-**演示视频：**
-
+演示视频：
+https://github.com/cenglin123/SteganographierGUI/assets/167851968/e632d2da-1e06-4e78-b834-553844721bec
 
 本程序允许通过**输入密码**和**拖入文件**的方式来直接进行文件的隐写和解隐写。
 
@@ -107,6 +107,4 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 **此程序权当抛砖引玉，目前测试仍不充分，可能有bug，欢迎各位积极参与研究**。
 
-演示视频：
-https://github.com/cenglin123/SteganographierGUI/assets/167851968/e632d2da-1e06-4e78-b834-553844721bec
 
