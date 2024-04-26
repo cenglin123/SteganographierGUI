@@ -146,11 +146,12 @@ class SteganographierGUI:
             self.clear_button.configure(state=tk.NORMAL)
             return
         
-        if not self.check_tools_existence():
-            # 结束后恢复按钮
-            self.start_button.configure(state=tk.NORMAL)
-            self.clear_button.configure(state=tk.NORMAL)
-            return
+        if self.type_option_var.get() == 'mkv':
+            if not self.check_tools_existence():
+                # 结束后恢复按钮
+                self.start_button.configure(state=tk.NORMAL)
+                self.clear_button.configure(state=tk.NORMAL)
+                return
 
         hide_file_paths = self.hide_text.get("1.0", tk.END).strip().split("\n")
         reveal_file_paths = self.reveal_text.get("1.0", tk.END).strip().split("\n")
