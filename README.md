@@ -72,10 +72,11 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 ## 4. GUI设计与功能介绍
 
-![3b26f5f267400432709dbef344859d18.webp](https://file.cangku.moe/images/3b26f5f267400432709dbef344859d18.webp)
+![Clip_2024-04-27_17-16-05](https://github.com/cenglin123/SteganographierGUI/assets/167851968/fac293f3-39ca-4bbe-9c98-da4ac781ba45)
+
 
 演示视频：
-https://github.com/cenglin123/SteganographierGUI/assets/167851968/e632d2da-1e06-4e78-b834-553844721bec
+[https://github.com/cenglin123/SteganographierGUI/assets/167851968/e632d2da-1e06-4e78-b834-553844721bec](https://youtu.be/8HmKQRUL7FQ)
 
 本程序允许通过**输入密码**和**拖入文件**的方式来直接进行文件的隐写和解隐写。
 
