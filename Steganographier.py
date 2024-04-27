@@ -21,18 +21,58 @@ import pyzipper
 import threading
 import subprocess
 import string
+from hachoir.parser import createParser
+from hachoir.metadata import extractMetadata
+
 
 def generate_random_filename(length=16):
     """生成指定长度的随机文件名, 不带扩展名"""
     chars = string.ascii_letters + string.digits
     return ''.join(random.choice(chars) for _ in range(length))
 
+def format_duration(seconds):
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes}m:{seconds:02d}s"
+    else:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        seconds = seconds % 60
+        return f"{hours}h:{minutes:02d}m:{seconds:02d}s"
+
+def get_video_duration(filepath):
+    parser = createParser(filepath)
+    if not parser:
+        return "Unknown"
+    try:
+        metadata = extractMetadata(parser)
+        if not metadata:
+            return "Unknown"
+        duration = metadata.get('duration')
+        return format_duration(int(duration.seconds)) if duration else "Unknown"
+    finally:
+        parser.stream._input.close()
+
+def get_video_files_info(folder_path):
+    videos = []
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".mp4") or filename.endswith(".mkv"):
+            filepath = os.path.join(folder_path, filename)
+            duration = get_video_duration(filepath)
+            size = os.path.getsize(filepath) / (1024 * 1024)  # Convert bytes to MB
+            videos.append(f"{filename} - {duration} - {size:.2f}MB")
+    return videos
+
 class SteganographierGUI:
     def __init__(self):
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.3 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.0.4 GUI 作者: 层林尽染"
+        self.video_file = None # 外壳MP4文件
         self.create_widgets() # GUI实现部分
         
     # 窗口控件初始化方法
@@ -79,6 +119,17 @@ class SteganographierGUI:
         self.video_folder_path = os.path.join(application_path, "cover_video")
         self.video_folder_label = tk.Label(self.root, text=f"外壳MP4文件存放路径: \n{self.video_folder_path}")
         self.video_folder_label.pack()
+
+        # 获取外壳MP4视频文件列表和信息
+        video_options = get_video_files_info(self.video_folder_path)
+        self.video_option_var = tk.StringVar()
+        if video_options:
+            self.video_option_var.set(video_options[0])  # 默认选择第一个视频文件
+        else:
+            self.video_option_var.set("No videos found")
+        
+        self.video_option_menu = tk.OptionMenu(self.root, self.video_option_var, *video_options)
+        self.video_option_menu.pack()
         
         # log文本框
         self.log_text = tk.Text(self.root, width=65, height=10, state=tk.NORMAL)
@@ -216,8 +267,13 @@ class SteganographierGUI:
             self.clear_button.configure(state=tk.NORMAL)
             return
 
-        # 随机选择一个外壳MP4文件用来隐写
-        video_file = random.choice(video_files)
+        # # 随机选择一个外壳MP4文件用来隐写
+        # video_file = random.choice(video_files)
+
+        # 根据下拉菜单选择外壳MP4文件
+        video_file = self.video_option_var.get() 
+        video_file = video_file[:video_file.rfind('.mp4')]+'.mp4' # 按最后一个.mp4切分
+
         cover_video_path = os.path.join(self.video_folder_path, video_file)
         
         # 创建隐写的临时zip文件
