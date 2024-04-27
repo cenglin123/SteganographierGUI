@@ -59,7 +59,7 @@ def get_video_duration(filepath):
 def get_video_files_info(folder_path):
     videos = []
     for filename in os.listdir(folder_path):
-        if filename.endswith(".mp4") or filename.endswith(".mkv"):
+        if filename.endswith(".mp4"):
             filepath = os.path.join(folder_path, filename)
             duration = get_video_duration(filepath)
             size = os.path.getsize(filepath) / (1024 * 1024)  # Convert bytes to MB
