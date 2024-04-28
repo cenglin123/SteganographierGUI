@@ -71,7 +71,7 @@ class SteganographierGUI:
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.4 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.0.5 GUI 作者: 层林尽染"
         self.video_file = None # 外壳MP4文件
         self.create_widgets() # GUI实现部分
         
@@ -358,7 +358,6 @@ class SteganographierGUI:
                             # 少量随机字节，以使得每次生成的文件哈希值不同
                             random_bytes = os.urandom(8)  # 8个bytes
                             output.write(random_bytes)
-
                         
                 # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
                 # if os.name == 'nt':  # Windows
@@ -381,14 +380,25 @@ class SteganographierGUI:
                     return
                 
                 output_file = os.path.splitext(file_path)[0] + "_hidden.mkv"
+                # 生成末尾随机字节
+                random_data_path = f"temp_{generate_random_filename(length=16)}"
+                with open(random_data_path, "wb") as f:
+                    random_bytes = os.urandom(8)  # 8个byte
+                    f.write(random_bytes)
+
                 self.log(f"Output file: {output_file}")
                 cmd = [
                     self.mkvmerge_exe, '-o',
                     output_file, cover_video_path,
                     '--attach-file', zip_file_path,
+                    '--attach-file', random_data_path,
                 ]
                 self.log(f"Hiding file: {file_path}")
                 result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+                
+                # 删除临时随机字节
+                os.remove(random_data_path)
+
                 if result.returncode != 0:
                     raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
