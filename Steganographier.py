@@ -338,17 +338,27 @@ class SteganographierGUI:
                 self.log(f"Output file: {output_file}")
                 total_size = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
                 processed_size = 0
-                with open(cover_video_path, "rb") as file1, open(zip_file_path, "rb") as file2, open(output_file, "wb") as output:
-                    self.log(f"Hiding file: {file_path}")
-                    for chunk in self.read_in_chunks(file1):
-                        output.write(chunk)
-                        processed_size += len(chunk)
-                        self.update_progress(processed_size, total_size)
-                    
-                    for chunk in self.read_in_chunks(file2):
-                        output.write(chunk)
-                        processed_size += len(chunk)
-                        self.update_progress(processed_size, total_size)
+                with open(cover_video_path, "rb") as file1:
+                    with open(zip_file_path, "rb") as file2:
+                        with open(output_file, "wb") as output:
+                            self.log(f"Hiding file: {file_path}")
+                            
+                            # 外壳MP4文件
+                            for chunk in self.read_in_chunks(file1):
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                self.update_progress(processed_size, total_size)
+                            
+                            # 压缩包zip文件
+                            for chunk in self.read_in_chunks(file2):
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                self.update_progress(processed_size, total_size)
+                            
+                            # 少量随机字节，以使得每次生成的文件哈希值不同
+                            random_bytes = os.urandom(8)  # 8个bytes
+                            output.write(random_bytes)
+
                         
                 # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
                 # if os.name == 'nt':  # Windows
