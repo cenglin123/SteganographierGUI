@@ -6,6 +6,7 @@ Created on Mon Apr 22 14:56:41 2024
 
 pip install tkinterdnd2
 pip install pyzipper
+pip install hachoir
 
 @author: Cr
 """
@@ -46,13 +47,13 @@ def format_duration(seconds):
 def get_video_duration(filepath):
     parser = createParser(filepath)
     if not parser:
-        return "Unknown"
+        return None
     try:
         metadata = extractMetadata(parser)
         if not metadata:
-            return "Unknown"
+            return None
         duration = metadata.get('duration')
-        return format_duration(int(duration.seconds)) if duration else "Unknown"
+        return int(duration.seconds) if duration else None
     finally:
         parser.stream._input.close()
 
@@ -61,17 +62,31 @@ def get_video_files_info(folder_path):
     for filename in os.listdir(folder_path):
         if filename.endswith(".mp4"):
             filepath = os.path.join(folder_path, filename)
-            duration = get_video_duration(filepath)
+            duration_seconds = get_video_duration(filepath)
+            if duration_seconds is None:
+                formatted_duration = "Unknown"
+            else:
+                formatted_duration = format_duration(duration_seconds)
             size = os.path.getsize(filepath) / (1024 * 1024)  # Convert bytes to MB
-            videos.append(f"{filename} - {duration} - {size:.2f}MB")
-    return videos
+            videos.append({
+                "filename": filename,
+                "duration": formatted_duration,
+                "duration_seconds": duration_seconds or 0,  # Use 0 for unknown durations for sorting
+                "size": size
+            })
+    # Sort the videos by duration in descending order
+    videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
+    
+    # Format for display
+    formatted_videos = [f"{video['filename']} - {video['duration']} - {video['size']:.2f}MB" for video in videos]
+    return formatted_videos
 
 class SteganographierGUI:
     def __init__(self):
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.6 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.0.7 GUI 作者: 层林尽染"
         self.video_file = None          # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
         self.create_widgets()           # GUI实现部分
