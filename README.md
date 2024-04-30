@@ -1,7 +1,7 @@
 # SteganographierGUI
 将文件隐写进MP4文件中
 
-## 说明:
+## 免责声明:
 
 <font color="#c0504d"><b>本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动</b></font>
 
