@@ -1,11 +1,6 @@
 # SteganographierGUI
 将文件隐写进MP4文件中
 
-## 免责声明:
-
-<font color="#c0504d"><b>本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动</b></font>
-
-<font color="#c0504d"><b>否则[后果](https://mps.gjzwfw.gov.cn/)自负，开发者对此不承担任何责任</b></font>
 
 ## 更新
 
@@ -115,4 +110,11 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 **此程序权当抛砖引玉，目前测试仍不充分，可能有bug，欢迎各位积极参与研究**。
 
+
+
+## 免责声明:
+
+<font color="#c0504d"><b>本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动</b></font>
+
+<font color="#c0504d"><b>否则[后果](https://mps.gjzwfw.gov.cn/)自负，开发者对此不承担任何责任</b></font>
 
