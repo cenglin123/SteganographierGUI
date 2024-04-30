@@ -1,6 +1,14 @@
 # SteganographierGUI
 将文件隐写进MP4文件中
 
+## 说明:
+
+<font color="#c0504d"><b>本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动</b></font>
+
+<font color="#c0504d"><b>否则[后果](https://mps.gjzwfw.gov.cn/)自负，开发者对此不承担任何责任</b></font>
+
+## 更新
+
 v1.0.1 修复了无法隐写ZIP格式文件的bug
 
 v1.0.2 新增隐写为mkv文件的逻辑，引入第三方工具用于处理mkv文件
