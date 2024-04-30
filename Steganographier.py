@@ -167,7 +167,7 @@ class SteganographierGUI:
         
         # log文本框
         self.log_text = tk.Text(self.root, width=65, height=10, state=tk.NORMAL)
-        self.log_text.insert(tk.END, "Console output goes here...\n")
+        self.log_text.insert(tk.END, "说明:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
         self.log_text.pack()
         
@@ -279,7 +279,7 @@ class SteganographierGUI:
         
         self.log_text.configure(state=tk.NORMAL, fg="grey")
         self.log_text.delete("1.0", tk.END)
-        self.log_text.insert(tk.END, "Console output goes here...\n")
+        self.log_text.insert(tk.END, "说明:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
 
     def read_in_chunks(self, file_object, chunk_size=1024*1024):
