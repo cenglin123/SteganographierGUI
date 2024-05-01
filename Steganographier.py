@@ -16,7 +16,7 @@ import sys
 # import shutil
 import random
 import tkinter as tk
-from tkinter import  messagebox, ttk
+from tkinter import  messagebox, ttk, filedialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import pyzipper
 import threading
@@ -86,14 +86,14 @@ class SteganographierGUI:
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.7 GUI 作者: 层林尽染"
-        self.video_file = None          # 外壳MP4文件路径
+        self.title = "隐写者 Ver.1.0.8 GUI 作者: 层林尽染"
+        self.video_folder_path = os.path.join(application_path, "cover_video") # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
         self.create_widgets()           # GUI实现部分
         self.password = None            # 密码
-        self.password_modified = False  # 追踪密码是否被用户修改过
+        self.password_modified = False  # 追踪密码是否被用户修改过     
         
-    # 窗口控件初始化方法
+# 窗口控件初始化方法
     def create_widgets(self):
         def clear_default_password(event):
             if self.password_entry.get() == "输入密码，不指定则无密码...":
@@ -150,12 +150,21 @@ class SteganographierGUI:
         self.reveal_text.drop_target_register(DND_FILES)
         self.reveal_text.dnd_bind("<<Drop>>", self.reveal_files_dropped)
         
-        self.video_folder_path = os.path.join(application_path, "cover_video")
-        self.video_folder_label = tk.Label(self.root, text=f"外壳MP4文件存放路径: \n{self.video_folder_path}")
-        self.video_folder_label.pack()
-
-        # 获取外壳MP4视频文件列表和信息
-        video_options = get_video_files_info(self.video_folder_path)
+        # 外壳MP4文件选择相关逻辑
+        video_folder_frame = tk.Frame(self.root)
+        video_folder_frame.pack(pady=5)
+        
+        video_folder_label = tk.Label(video_folder_frame, text="外壳MP4文件存放:")
+        video_folder_label.pack(side=tk.LEFT, padx=5)
+        
+        self.video_folder_entry = tk.Entry(video_folder_frame, width=35)
+        self.video_folder_entry.insert(0, self.video_folder_path)
+        self.video_folder_entry.pack(side=tk.LEFT, padx=5)
+        
+        self.video_folder_button = tk.Button(video_folder_frame, text="选择文件夹", command=self.select_video_folder)
+        self.video_folder_button.pack(side=tk.LEFT, padx=5)
+        
+        video_options = get_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和信息
         self.video_option_var = tk.StringVar()
         if video_options:
             self.video_option_var.set(video_options[0])  # 默认选择第一个视频文件
@@ -167,7 +176,7 @@ class SteganographierGUI:
         
         # log文本框
         self.log_text = tk.Text(self.root, width=65, height=10, state=tk.NORMAL)
-        self.log_text.insert(tk.END, "说明:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
+        self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
         self.log_text.pack()
         
@@ -186,6 +195,20 @@ class SteganographierGUI:
         self.progress.pack(pady=10)
         
         self.root.mainloop()
+
+    def select_video_folder(self):
+            folder_path = filedialog.askdirectory()
+            if folder_path:
+                self.video_folder_path = folder_path
+                self.video_folder_entry.delete(0, tk.END)
+                self.video_folder_entry.insert(0, folder_path)
+                
+                # 更新外壳MP4视频文件列表和信息
+                video_options = get_video_files_info(self.video_folder_path)
+                self.video_option_var.set(video_options[0] if video_options else "No videos found")
+                self.video_option_menu['menu'].delete(0, 'end')
+                for option in video_options:
+                    self.video_option_menu['menu'].add_command(label=option, command=tk._setit(self.video_option_var, option))
 
     def check_tools_existence(self):
         missing_tools = []
@@ -279,7 +302,7 @@ class SteganographierGUI:
         
         self.log_text.configure(state=tk.NORMAL, fg="grey")
         self.log_text.delete("1.0", tk.END)
-        self.log_text.insert(tk.END, "说明:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
+        self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
 
     def read_in_chunks(self, file_object, chunk_size=1024*1024):
@@ -294,7 +317,7 @@ class SteganographierGUI:
         # 1. 检查cover_video中是否存在用来作为外壳的MP4文件（比如海绵宝宝之类，数量任意，每次随机选择）
         video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
         if not video_files:
-            messagebox.showwarning("Warning", "cover_video 文件夹下没有文件，请添加文件后继续.")
+            messagebox.showwarning("Warning", f"{self.video_folder_path} 文件夹下没有文件，请添加文件后继续.")
             # 结束后恢复按钮
             self.start_button.configure(state=tk.NORMAL)
             self.clear_button.configure(state=tk.NORMAL)
