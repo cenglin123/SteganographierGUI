@@ -86,22 +86,23 @@ class SteganographierGUI:
         self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.8 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.0.9 GUI 作者: 层林尽染"
         self.video_folder_path = os.path.join(application_path, "cover_video") # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
         self.create_widgets()           # GUI实现部分
         self.password = None            # 密码
-        self.password_modified = False  # 追踪密码是否被用户修改过     
+        self.password_modified = False  # 追踪密码是否被用户修改过
+        # self.use_cover_video_file_as_output_name = False    # 是否使用外壳MP4文件名为输出文件名
         
 # 窗口控件初始化方法
     def create_widgets(self):
         def clear_default_password(event):
-            if self.password_entry.get() == "输入密码，不指定则无密码...":
+            if self.password_entry.get() == "留空则无密码":
                 self.password_entry.delete(0, tk.END)
                 self.password_entry.configure(fg="black", show="*")  # 输入密码后修改文字颜色为black，隐蔽输入
         def restore_default_password(event):
             if not self.password_entry.get():
-                self.password_entry.insert(0, "输入密码，不指定则无密码...")
+                self.password_entry.insert(0, "留空则无密码")
                 self.password_entry.configure(fg="grey", show="")
                 self.password_modified = False
             else:
@@ -111,27 +112,35 @@ class SteganographierGUI:
         self.root.title(self.title)
         self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
         
-        # 参数设定部分
+        # 1. 参数设定部分
         params_frame = tk.Frame(self.root)
         params_frame.pack(pady=5)
-        self.password_label = tk.Label(params_frame, text="Password:")
+        self.password_label = tk.Label(params_frame, text="密码:")
         self.password_label.pack(side=tk.LEFT, padx=5)
-        self.password_entry = tk.Entry(params_frame, width=25, fg="grey")
+        self.password_entry = tk.Entry(params_frame, width=13, fg="grey")
         restore_default_password(None) # 调用restore_default函数设置初始文字
         self.password_entry.pack(side=tk.LEFT, padx=10)
 
         self.password_entry.bind("<FocusIn>", clear_default_password)     # 当输入框为焦点时，调用clear_default函数
         self.password_entry.bind("<FocusOut>", restore_default_password)  # 当输入框失去焦点时，调用restore_default函数
         
-        # 创建一个变量用于存储下拉菜单的选项
-        self.type_option_var = tk.StringVar()
+        self.type_option_var = tk.StringVar() # 创建一个变量用于存储下拉菜单的选项
         self.type_option_var.set("mp4")  # 设置文件类型默认值
-        self.type_option_label = tk.Label(params_frame, text="Output Type:")
+        self.type_option_label = tk.Label(params_frame, text="输出类型:")
         self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
         self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv") # 下拉菜单
-        self.type_option.config(width=8)  # 设置宽度
+        self.type_option.config(width=4)  # 设置宽度
         self.type_option.pack(side=tk.LEFT, padx=5, pady=5)
+
+        self.output_option_label = tk.Label(params_frame, text="输出名:")
+        self.output_option_label.pack(side=tk.LEFT, padx=5, pady=5)
+        self.output_option_var = tk.StringVar()
+        self.output_option_var.set("原文件名")
+        self.output_option = tk.OptionMenu(params_frame, self.output_option_var, "原文件名", "外壳文件名")
+        self.output_option.config(width=8)
+        self.output_option.pack(side=tk.LEFT, padx=5, pady=5)
         
+        # 2. 隐写/解隐写文件拖入窗口
         self.hide_frame = tk.Frame(self.root, bd=2, relief=tk.GROOVE)
         self.hide_frame.pack(pady=10)
         self.hide_label = tk.Label(self.hide_frame, text="在此窗口中批量输入/拖入需要隐写的文件/文件夹:") 
@@ -150,7 +159,7 @@ class SteganographierGUI:
         self.reveal_text.drop_target_register(DND_FILES)
         self.reveal_text.dnd_bind("<<Drop>>", self.reveal_files_dropped)
         
-        # 外壳MP4文件选择相关逻辑
+        # 3. 外壳MP4文件选择相关逻辑
         video_folder_frame = tk.Frame(self.root)
         video_folder_frame.pack(pady=5)
         
@@ -174,13 +183,13 @@ class SteganographierGUI:
         self.video_option_menu = tk.OptionMenu(self.root, self.video_option_var, *video_options)
         self.video_option_menu.pack()
         
-        # log文本框
+        # 4. log文本框
         self.log_text = tk.Text(self.root, width=65, height=10, state=tk.NORMAL)
         self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
         self.log_text.pack()
         
-        # 按钮部分
+        # 5. 控制按钮部分
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=10)
         
@@ -328,9 +337,9 @@ class SteganographierGUI:
 
         # 2. 根据下拉菜单选择外壳MP4文件
         video_file = self.video_option_var.get() 
-        video_file = video_file[:video_file.rfind('.mp4')]+'.mp4' # 按最后一个.mp4切分
+        self.cover_video_file = video_file[:video_file.rfind('.mp4')]+'.mp4' # 按最后一个.mp4切分
 
-        cover_video_path = os.path.join(self.video_folder_path, video_file)
+        cover_video_path = os.path.join(self.video_folder_path, self.cover_video_file)
         
         # 3. 隐写的临时zip文件名
         zip_file_path = os.path.join(os.path.splitext(file_path)[0] + "_hidden.zip")
@@ -402,7 +411,11 @@ class SteganographierGUI:
         try:        
             # 7.1. 隐写MP4文件的逻辑
             if self.type_option_var.get() == 'mp4':
-                output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
+                if self.output_option_var.get() == '原文件名':
+                    output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
+                elif self.output_option_var.get() == '外壳文件名':
+                    output_file = os.path.join(os.path.split(file_path)[0], self.cover_video_file)
+
                 self.log(f"Output file: {output_file}")
                 total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
                 processed_size = 0
