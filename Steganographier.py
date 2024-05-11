@@ -24,6 +24,8 @@ import subprocess
 import string
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
+import struct
+from datetime import datetime, timedelta
 
 
 def generate_random_filename(length=16):
@@ -83,16 +85,22 @@ def get_video_files_info(folder_path):
 
 class SteganographierGUI:
     def __init__(self):
-        self.mkvmerge_exe = os.path.join(application_path,'tools','mkvmerge.exe')
+        self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
-        self.mkvinfo_exe = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.0.9 GUI 作者: 层林尽染"
+        self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
+        self.title = "隐写者 Ver.1.0.10 GUI 作者: 层林尽染"
         self.video_folder_path = os.path.join(application_path, "cover_video") # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
-        self.create_widgets()           # GUI实现部分
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
-        # self.use_cover_video_file_as_output_name = False    # 是否使用外壳MP4文件名为输出文件名
+        self.remaining_video_files = [] # 随机选择 初始化未被选择过的外壳MP4文件列表
+        self.create_widgets()           # GUI实现部分
+
+    def initialize_video_files(self):
+        """初始化剩余可用的外壳文件列表"""
+        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
+        random.shuffle(video_files)  # 随机排序
+        self.remaining_video_files = video_files
         
 # 窗口控件初始化方法
     def create_widgets(self):
@@ -136,7 +144,7 @@ class SteganographierGUI:
         self.output_option_label.pack(side=tk.LEFT, padx=5, pady=5)
         self.output_option_var = tk.StringVar()
         self.output_option_var.set("原文件名")
-        self.output_option = tk.OptionMenu(params_frame, self.output_option_var, "原文件名", "外壳文件名")
+        self.output_option = tk.OptionMenu(params_frame, self.output_option_var, "原文件名", "外壳文件名", "随机文件名")
         self.output_option.config(width=8)
         self.output_option.pack(side=tk.LEFT, padx=5, pady=5)
         
@@ -176,11 +184,17 @@ class SteganographierGUI:
         video_options = get_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和信息
         self.video_option_var = tk.StringVar()
         if video_options:
-            self.video_option_var.set(video_options[0])  # 默认选择第一个视频文件
+            # self.video_option_var.set(video_options[0])  # 默认选择第一个视频文件
+            self.video_option_var.set('===============名称顺序模式===============')  # 默认选择模式
         else:
             self.video_option_var.set("No videos found")
         
-        self.video_option_menu = tk.OptionMenu(self.root, self.video_option_var, *video_options)
+        self.video_option_menu = tk.OptionMenu(self.root, 
+                                               self.video_option_var, 
+                                               *video_options,
+                                                '===============随机选择模式===============', 
+                                                '===============时长顺序模式===============',
+                                                '===============名称顺序模式===============')
         self.video_option_menu.pack()
         
         # 4. log文本框
@@ -206,18 +220,22 @@ class SteganographierGUI:
         self.root.mainloop()
 
     def select_video_folder(self):
-            folder_path = filedialog.askdirectory()
-            if folder_path:
-                self.video_folder_path = folder_path
-                self.video_folder_entry.delete(0, tk.END)
-                self.video_folder_entry.insert(0, folder_path)
-                
-                # 更新外壳MP4视频文件列表和信息
-                video_options = get_video_files_info(self.video_folder_path)
-                self.video_option_var.set(video_options[0] if video_options else "No videos found")
-                self.video_option_menu['menu'].delete(0, 'end')
-                for option in video_options:
-                    self.video_option_menu['menu'].add_command(label=option, command=tk._setit(self.video_option_var, option))
+        folder_path = filedialog.askdirectory()
+        if folder_path:
+            self.video_folder_path = folder_path
+            self.video_folder_entry.delete(0, tk.END)
+            self.video_folder_entry.insert(0, folder_path)
+            
+            # 更新外壳MP4视频文件列表和信息
+            video_options = get_video_files_info(self.video_folder_path)
+            video_options +=  ['===============随机选择模式===============', 
+                               '===============时长顺序模式===============', 
+                               '===============名称顺序模式===============']
+            self.video_option_var.set('===============名称顺序模式===============' if video_options else "No videos found")
+            self.video_option_menu['menu'].delete(0, 'end')
+            for option in video_options:
+                self.video_option_menu['menu'].add_command(label=option, 
+                                                            command=tk._setit(self.video_option_var, option))
 
     def check_tools_existence(self):
         missing_tools = []
@@ -279,16 +297,17 @@ class SteganographierGUI:
             return
         
         total_files = len(hide_file_paths) + len(reveal_file_paths)
-        processed_files = 0
         
         # 3. 隐写流程
+        processed_files = 0
         for file_path in hide_file_paths:
             if file_path:
-                self.hide_file(file_path, self.password)
+                self.hide_file(file_path, self.password, processed_files)
                 processed_files += 1
                 self.update_progress(processed_files, total_files)
         
         # 4. 解除隐写流程
+        processed_files = 0
         for file_path in reveal_file_paths:
             if file_path:
                 self.reveal_file(file_path, self.password)
@@ -322,27 +341,42 @@ class SteganographierGUI:
             yield data
 
     # 隐写方法实现部分
-    def hide_file(self, file_path, password):
+    def hide_file(self, file_path, password, processed_files=0):
         # 1. 检查cover_video中是否存在用来作为外壳的MP4文件（比如海绵宝宝之类，数量任意，每次随机选择）
-        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
+        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")] # 按默认排序选择
         if not video_files:
             messagebox.showwarning("Warning", f"{self.video_folder_path} 文件夹下没有文件，请添加文件后继续.")
             # 结束后恢复按钮
             self.start_button.configure(state=tk.NORMAL)
             self.clear_button.configure(state=tk.NORMAL)
             return
+        
+        # 2. 外壳文件选择
+        if self.video_option_var.get() == '===============随机选择模式===============':
+            # 2-a. 随机选择一个外壳MP4文件用来隐写，尽量不重复
+            if not self.remaining_video_files:
+                self.initialize_video_files()
+            video_file = self.remaining_video_files.pop()
 
-        # # 随机选择一个外壳MP4文件用来隐写
-        # video_file = random.choice(video_files)
+        elif self.video_option_var.get() == '===============时长顺序模式===============':
+            # 2-b. 按时长顺序选择一个外壳MP4文件用来隐写
+            video_files = get_video_files_info(self.video_folder_path)  # 按时长顺序选择
+            video_file = video_files[processed_files % len(video_files)]
 
-        # 2. 根据下拉菜单选择外壳MP4文件
-        video_file = self.video_option_var.get() 
+        elif self.video_option_var.get() == '===============名称顺序模式===============':
+            # 2-c. 按名称顺序选择一个外壳MP4文件用来隐写
+            video_file = video_files[processed_files % len(video_files)]
+
+        else:
+            # 2-d. 根据下拉菜单选择外壳MP4文件
+            video_file = self.video_option_var.get()
+
+        
         self.cover_video_file = video_file[:video_file.rfind('.mp4')]+'.mp4' # 按最后一个.mp4切分
-
         cover_video_path = os.path.join(self.video_folder_path, self.cover_video_file)
         
         # 3. 隐写的临时zip文件名
-        zip_file_path = os.path.join(os.path.splitext(file_path)[0] + "_hidden.zip")
+        zip_file_path = os.path.join(os.path.splitext(file_path)[0] + f"_hidden_{processed_files}.zip")
         
         # 4. 计算要压缩的文件总大小
         self.total_file_size = 0
@@ -405,91 +439,160 @@ class SteganographierGUI:
         
         processed_size = 0                                                  # 初始化已处理的大小为0
 
-        compress_files(zip_file_path, file_path, processed_size=processed_size, password=self.password)    # 创建隐写的临时zip文件
+        compress_files(zip_file_path, file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
 
         # 7. 隐写压缩后的zip文件的逻辑
         try:        
             # 7.1. 隐写MP4文件的逻辑
             if self.type_option_var.get() == 'mp4':
+                # 输出文件名选择
                 if self.output_option_var.get() == '原文件名':
-                    output_file = os.path.splitext(file_path)[0] + "_hidden.mp4"
+                    output_file = os.path.splitext(file_path)[0] + f"_hidden_{processed_files+1}.mp4"
                 elif self.output_option_var.get() == '外壳文件名':
-                    output_file = os.path.join(os.path.split(file_path)[0], self.cover_video_file)
+                    output_file = os.path.join(os.path.split(file_path)[0], 
+                                               os.path.splitext(self.cover_video_file)[0] + f'_{processed_files+1}.mp4')
+                elif self.output_option_var.get() == '随机文件名':
+                    output_file = os.path.join(os.path.split(file_path)[0], 
+                                               generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
 
                 self.log(f"Output file: {output_file}")
-                total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
-                processed_size = 0
-                with open(cover_video_path, "rb") as file1:
-                    with open(zip_file_path, "rb") as file2:
-                        with open(output_file, "wb") as output:
-                            self.log(f"Hiding file: {file_path}")
-                            
-                            # 外壳MP4文件
-                            for chunk in self.read_in_chunks(file1):
-                                output.write(chunk)
-                                processed_size += len(chunk)
-                                self.update_progress(processed_size, total_size_hidden)
-                            
-                            # 压缩包zip文件
-                            for chunk in self.read_in_chunks(file2):
-                                output.write(chunk)
-                                processed_size += len(chunk)
-                                self.update_progress(processed_size, total_size_hidden)
-                            
-                            # 少量随机字节，以使得每次生成的文件哈希值不同
-                            random_bytes = os.urandom(8)  # 8个bytes
-                            output.write(random_bytes)
-                        
-                # # 也可以用shell指令完成隐写，但打包后容易出莫名其妙的bug，故弃用
-                # if os.name == 'nt':  # Windows
-                #     cmd = f'copy /b "{cover_video_path}" + "{zip_file_path}" "{output_file}"'
-                # else:  # For Unix-like systems
-                #     cmd = f'cat "{cover_video_path}" "{zip_file_path}" > "{output_file}"'
-                # subprocess.run(cmd, shell=True, check=True)
-            
+                try:
+                    total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
+                    processed_size = 0
+                    with open(cover_video_path, "rb") as file1:
+                        with open(zip_file_path, "rb") as file2:
+                            with open(output_file, "wb") as output:
+                                self.log(f"Hiding file: {file_path}")
+
+                                # 外壳 MP4 文件
+                                for chunk in self.read_in_chunks(file1):
+                                    output.write(chunk)
+                                    processed_size += len(chunk)
+                                    self.update_progress(processed_size, total_size_hidden)
+
+                                # 压缩包 zip 文件
+                                for chunk in self.read_in_chunks(file2):
+                                    output.write(chunk)
+                                    processed_size += len(chunk)
+                                    self.update_progress(processed_size, total_size_hidden)
+
+                                # 随机写入 2 种压缩文件特征码，用来混淆网盘的检测系统
+                                head_signatures = {
+                                    "RAR4": b'\x52\x61\x72\x21\x1A\x07\x00',
+                                    "RAR5": b'\x52\x61\x72\x21\x1A\x07\x01\x00',
+                                    "7Z": b'\x37\x7A\xBC\xAF\x27\x1C',
+                                    "ZIP": b'\x50\x4B\x03\x04',
+                                    "GZIP": b'\x1F\x8B',
+                                    "BZIP2": b'\x42\x5A\x68',
+                                    "XZ": b'\xFD\x37\x7A\x58\x5A\x00',
+                                }
+
+                                # 添加随机压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                                output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
+                                output.write(random_bytes)
+
+                                output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                                output.write(random_bytes)
+
+                                # 构造一个随机的 moov box
+                                def construct_random_moov_box():
+                                    # 生成随机的 32 位整数。
+                                    def generate_random_uint32():
+                                        return random.randint(0, 0xFFFFFFFF)
+
+                                    # 随机生成时间戳（1970 年后）
+                                    def generate_random_timestamp():
+                                        epoch = datetime(1970, 1, 1)
+                                        random_date = epoch + timedelta(seconds=random.randint(0, int((datetime.now() - epoch).total_seconds())))
+                                        return int(random_date.timestamp())
+
+                                    # 随机生成矩阵（3x3 矩阵）
+                                    def generate_random_matrix():
+                                        return struct.pack(">9I",
+                                                        0x00010000, 0, 0,  # 第一行
+                                                        0, 0x00010000, 0,  # 第二行
+                                                        0, 0, 0x40000000)  # 第三行
+                                    moov_box_header = b'\x00\x00\x00\x6C\x6D\x6F\x6F\x76'  # moov header
+                                    mvhd_box_header = b'\x00\x00\x00\x6C\x6D\x76\x68\x64'  # mvhd header
+
+                                    mvhd_box = (
+                                        mvhd_box_header +  # mvhd header
+                                        b'\x00\x00\x00\x00' +  # version and flags
+                                        struct.pack(">I", generate_random_timestamp()) +  # creation time
+                                        struct.pack(">I", generate_random_timestamp()) +  # modification time
+                                        struct.pack(">I", 1000) +  # timescale
+                                        struct.pack(">I", random.randint(10000, 60000)) +  # duration
+                                        struct.pack(">I", 0x00010000) +  # rate (1.0)
+                                        struct.pack(">H", 0x0100) +  # volume (1.0)
+                                        b'\x00\x00' +  # reserved
+                                        struct.pack(">Q", generate_random_uint32()) +  # reserved
+                                        generate_random_matrix() +  # matrix
+                                        b'\x00\x00\x00\x00\x00\x00\x00\x00' +  # pre-defined
+                                        b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' +  # pre-defined
+                                        struct.pack(">I", generate_random_uint32())  # next track ID
+                                    )
+
+                                    moov_box = moov_box_header + mvhd_box
+                                    return moov_box
+
+                                # 将随机的 moov box 附加到文件末尾
+                                moov_box = construct_random_moov_box()
+                                output.write(moov_box)
+                
+                except Exception as e:
+                    self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
+                    raise
+
             # 7.2. 隐写mkv文件的逻辑
             elif self.type_option_var.get() == 'mkv':
-                total_file_size = os.path.getsize(file_path)
-                if total_file_size > 2 * 1024 * 1024 * 1024:  # 2GB
-                    messagebox.showwarning(
-                        "Warning",
-                        f"mkv文件不能一次性隐写大小超过2GB的文件，此文件大小为{total_file_size / (1024 * 1024 * 1024):.2f} GB. 请改换mp4模式或者分卷处理。"
-                    )
-                    # 结束后恢复按钮
-                    self.start_button.configure(state=tk.NORMAL)
-                    self.clear_button.configure(state=tk.NORMAL)
-                    return
+                 # 输出文件名选择
+                if self.output_option_var.get() == '原文件名':
+                    output_file = os.path.splitext(file_path)[0] + f"_hidden_{processed_files+1}.mkv"
+                elif self.output_option_var.get() == '外壳文件名':
+                    output_file = os.path.join(os.path.split(file_path)[0], 
+                                               os.path.splitext(self.cover_video_file)[0] + f'_{processed_files+1}.mkv')          
+                elif self.output_option_var.get() == '随机文件名':
+                    output_file = os.path.join(os.path.split(file_path)[0], 
+                                               generate_random_filename(length=16) + f'_{processed_files+1}.mkv')     
                 
-                output_file = os.path.splitext(file_path)[0] + "_hidden.mkv"
                 # 生成末尾随机字节
                 random_data_path = f"temp_{generate_random_filename(length=16)}"
-                with open(random_data_path, "wb") as f:
-                    random_bytes = os.urandom(8)  # 8个byte
-                    f.write(random_bytes)
+                try:
+                    with open(random_data_path, "wb") as f:
+                        random_bytes = os.urandom(1024*8)  # 8kb
+                        f.write(random_bytes)
 
-                self.log(f"Output file: {output_file}")
-                cmd = [
-                    self.mkvmerge_exe, '-o',
-                    output_file, cover_video_path,
-                    '--attach-file', zip_file_path,
-                    '--attach-file', random_data_path,
-                ]
-                self.log(f"Hiding file: {file_path}")
-                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
-                
-                # 删除临时随机字节
-                os.remove(random_data_path)
+                    self.log(f"Output file: {output_file}")
+                    cmd = [
+                        self.mkvmerge_exe, '-o',
+                        output_file, cover_video_path,
+                        '--attach-file', zip_file_path,
+                        '--attach-file', random_data_path,
+                    ]
+                    self.log(f"Hiding file: {file_path}")
+                    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+                    
+                    # 删除临时随机字节
+                    os.remove(random_data_path)
 
-                if result.returncode != 0:
-                    raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
+                    if result.returncode != 0:
+                        raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
-        except subprocess.CalledProcessError as cpe:
-            self.log(f"隐写时发生错误: {str(cpe)}")
-            self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
-            self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
+                except subprocess.CalledProcessError as cpe:
+                    self.log(f"隐写时发生错误: {str(cpe)}")
+                    self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
+                    self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
+                    raise
+
+                except Exception as e:
+                    self.log(f"在执行mkvmerge时发生未预料的错误: {str(e)}")
+                    raise
 
         except Exception as e:
             self.log(f"隐写时发生未预料的错误: {str(e)}")
+
 
         # 8. 删除临时zip文件
         os.remove(zip_file_path)
