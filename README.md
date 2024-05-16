@@ -1,5 +1,5 @@
 # SteganographierGUI
-将文件隐写进MP4文件中
+将文件隐写进MP4/MKV文件中
 
 
 ## 更新
