@@ -65,7 +65,7 @@ options:
 ```
 用法举例：
 ```
-(hide) C:\Users\xxxx>隐写者.exe -i D:\测试用文件夹\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试用文件夹\123.mp4
+(hide) C:\Users\xxxx>隐写者.exe -i D:\测试\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试\123.mp4
 ```
 
 ## 1. 背景
