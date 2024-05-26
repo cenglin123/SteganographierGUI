@@ -268,6 +268,8 @@ class SteganographierGUI:
         self.reveal_text.insert(tk.END, "\n".join(file_paths) + "\n")
     
     def start_thread(self):
+        # 在启动线程前,先将焦点转移到主窗口上,触发密码输入框的FocusOut事件
+        self.root.focus_set()
         threading.Thread(target=self.start).start()
     
     def start(self):
@@ -304,6 +306,7 @@ class SteganographierGUI:
         
         # 3. 隐写流程
         processed_files = 0
+
         for input_file_path in hide_file_paths:
             if input_file_path:
                 self.steganographier.hide_file(input_file_path, 
@@ -453,7 +456,6 @@ class Steganographier:
     def get_output_file_path(self, input_file_path=None, output_file_path=None, processed_files=0, output_option=None, output_video_name_mode=None):
 
         # 输出文件名指定
-        print(f"output_file_path 777: {output_file_path}")
         if output_file_path:
             return output_file_path # 如果指定了输出文件名就用输出文件名（CLI模式）
 
@@ -461,18 +463,14 @@ class Steganographier:
         if self.type_option == 'mp4':
 
             # 输出文件名选择
-            print(f"a-文件名：{self.output_option}")
             if self.output_option == '原文件名':
                 output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
-                print(f"b-原文件名：{output_file_path}")
             elif self.output_option == '外壳文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         os.path.splitext(self.cover_video_file)[0] + f'_{processed_files+1}.mp4')
-                print(f"b-外壳文件名：{output_file_path}")
             elif self.output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
-                print(f"c-随机文件名：{output_file_path}")
             print(f"output_file_path: {output_file_path}")    
         elif self.type_option == 'mkv':
 
@@ -501,6 +499,7 @@ class Steganographier:
         self.type_option                = type_option
         self.output_option              = output_option
         self.output_video_name_mode     = output_video_name_mode
+        self.password = password
 
         # 1~2. 隐写外壳文件选择
         cover_video_path = self.choose_cover_video_file(cover_video=cover_video, processed_files=processed_files, output_video_name_mode=output_video_name_mode)
