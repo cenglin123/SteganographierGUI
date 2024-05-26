@@ -41,6 +41,28 @@ v1.0.10 改进：
 3. 外壳文件新增名称排序、随机排序、时长排序选项。
 ```
 
+v1.1.0 改进
+新增命令行调用的 CLI 模式（不影响GUI的功能），模式命令如下：
+```
+(hide) C:\Users\xxxx\>python Steganographier.py -h
+usage: Steganographier.py [-h] [-i INPUT] [-o OUTPUT] [-p PASSWORD] [-t {mp4,mkv}] [-c COVER] [-r]
+
+隐写者 Ver.1.1.0 CLI 作者: 层林尽染
+
+options:
+  -h, --help            show this help message and exit
+  -i INPUT, --input INPUT
+                        输入文件路径
+  -o OUTPUT, --output OUTPUT
+                        输出文件路径
+  -p PASSWORD, --password PASSWORD
+                        设置密码
+  -t {mp4,mkv}, --type {mp4,mkv}
+                        设置输出文件类型
+  -c COVER, --cover COVER
+                        设置外壳MP4视频路径
+  -r, --reveal          执行解除隐写
+```
 
 
 ## 1. 背景
