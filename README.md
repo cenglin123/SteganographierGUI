@@ -41,8 +41,8 @@ v1.0.10 改进：
 3. 外壳文件新增名称排序、随机排序、时长排序选项。
 ```
 
-v1.1.0 改进
-新增命令行调用的 CLI 模式（不影响GUI的功能），模式命令如下：
+v1.1.0 版本进位
+新增命令行调用的 CLI 模式，模式命令如下：
 ```
 (hide) C:\Users\xxxx\>python Steganographier.py -h
 usage: Steganographier.py [-h] [-i INPUT] [-o OUTPUT] [-p PASSWORD] [-t {mp4,mkv}] [-c COVER] [-r]
@@ -63,7 +63,10 @@ options:
                         设置外壳MP4视频路径
   -r, --reveal          执行解除隐写
 ```
-
+用法举例：
+```
+(hide) C:\Users\xxxx>隐写者.exe -i D:\测试用文件夹\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试用文件夹\123.mp4
+```
 
 ## 1. 背景
 
