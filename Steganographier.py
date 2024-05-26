@@ -804,8 +804,8 @@ class Steganographier:
         else:
             self.reveal_file(input_file_path=args.input, password=args.password, type_option=self.type_option)  # 调用reveal_file方法
 
-    def run_gui(self):
-        SteganographierGUI()
+    # def run_gui(self):
+    #     SteganographierGUI()
 
 if __name__ == "__main__":
     # 关于程序执行路径的问题
@@ -825,6 +825,12 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--reveal', action='store_true', help='执行解除隐写')
 
     args = parser.parse_args()
+    print(f"输入文件路径: {args.input}")
+    print(f"输出文件路径: {args.output}")
+    print(f"密码: {args.password}")
+    print(f"输出文件类型: {args.type}")
+    print(f"外壳MP4视频路径: {args.cover}")
+    print(f"执行解除隐写: {args.reveal}")
 
     if args.input:
         print('CLI')
