@@ -75,6 +75,8 @@
 
 **Full Changelog**: https://github.com/cenglin123/SteganographierGUI/compare/v1.1.0...v1.1.1
 
+* * *
+
 **v1.1.0 版本进位**
 
 新增命令行调用的 CLI 模式，模式命令如下：
@@ -103,7 +105,6 @@ options:
 (hide) C:\Users\xxxx>隐写者.exe -i D:\测试\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试\123.mp4
 ```
 
-* * *
 
 **v1.0.10 改进：**
 ```
