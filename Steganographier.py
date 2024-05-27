@@ -92,7 +92,7 @@ class SteganographierGUI:
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.1.0 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.1.1 GUI 作者: 层林尽染"
         self.video_folder_path = os.path.join(application_path, "cover_video") # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
@@ -122,7 +122,10 @@ class SteganographierGUI:
 
         self.root = TkinterDnD.Tk()
         self.root.title(self.title)
-        self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
+        try:
+            self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
+        except tk.TclError:
+            print("无法找到图标文件，继续运行程序...")
         
         # 1. 参数设定部分
         params_frame = tk.Frame(self.root)
@@ -185,7 +188,11 @@ class SteganographierGUI:
         self.video_folder_button = tk.Button(video_folder_frame, text="选择文件夹", command=self.select_video_folder)
         self.video_folder_button.pack(side=tk.LEFT, padx=5)
         
-        video_options = get_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和信息
+        if os.path.exists(self.video_folder_path):
+            video_options = get_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和信息
+        else:
+            video_options = []  # 如果文件夹不存在，提供一个默认的空列表
+            
         self.output_video_name_mode_var = tk.StringVar()
         if video_options:
             # self.output_video_name_mode_var.set(video_options[0])  # 默认选择第一个视频文件
@@ -523,7 +530,6 @@ class Steganographier:
 
         try:        
             # 7.1. 隐写MP4文件的逻辑
-            print(f"7.1 type_option: {type_option}")
             if type_option == 'mp4':
                 output_file = self.get_output_file_path(input_file_path, output_file_path, processed_files, self.output_option, self.output_video_name_mode)
                 print(f"output_file: {output_file}")
@@ -808,32 +814,72 @@ class Steganographier:
 
 if __name__ == "__main__":
     # 关于程序执行路径的问题
-    if getattr(sys, 'frozen', False):
-        # 打包成exe的情况
+    if getattr(sys, 'frozen', False):  # 打包成exe的情况
         application_path = os.path.dirname(sys.executable)
-    else:
-        # 在开发环境中运行
+    else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
-    
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.0 CLI 作者: 层林尽染')
-    parser.add_argument('-i', '--input', help='输入文件路径')
-    parser.add_argument('-o', '--output', help='输出文件路径')
-    parser.add_argument('-p', '--password', help='设置密码')
-    parser.add_argument('-t', '--type', choices=['mp4', 'mkv'], help='设置输出文件类型')
-    parser.add_argument('-c', '--cover', help='设置外壳MP4视频路径')
+
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.1 CLI 作者: 层林尽染')
+    parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
+    parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
+    parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
+    parser.add_argument('-t', '--type', default='mp4', choices=['mp4', 'mkv'], help='设置输出文件类型 (默认为mp4)')
+    parser.add_argument('-c', '--cover', default=None, help='指定外壳MP4视频（默认在程序同路径下搜索）')
     parser.add_argument('-r', '--reveal', action='store_true', help='执行解除隐写')
 
-    args = parser.parse_args()
-    print(f"输入文件路径: {args.input}")
-    print(f"输出文件路径: {args.output}")
-    print(f"密码: {args.password}")
-    print(f"输出文件类型: {args.type}")
-    print(f"外壳MP4视频路径: {args.cover}")
-    print(f"执行解除隐写: {args.reveal}")
+    args, unknown = parser.parse_known_args()
+
+    if unknown: # 假如没有指定参数标签，那么默认第一个传入为 -i 参数
+        args.input = unknown[0]
 
     if args.input:
         print('CLI')
         steganographier = Steganographier()
+
+        # 1. 处理输出路径
+        if args.output is None:
+            # 1.1 如果没有指定输出文件路径, 则默认和输入文件同路径, 使用原文件名+"_hidden.mp4/mkv"
+            input_dir = os.path.dirname(os.path.abspath(args.input))
+            args.output = os.path.join(input_dir, f"{os.path.splitext(os.path.basename(args.input))[0]}_hidden.{args.type}")
+        else:
+            # 1.2. 如果指定了输出路径但不包含文件名, 仍使用原文件名+"_hidden.mp4/mkv"
+            if os.path.splitext(args.output)[1] == '':
+                input_filename = os.path.splitext(os.path.basename(args.input))[0]
+                args.output = f"{os.path.join(args.output, input_filename)}_hidden.{args.type}"
+            # 1.3. 其余情况则使用指定的输出文件名
+            else:
+                args.output = args.output
+
+        # 2. 处理外壳MP4文件
+        if args.cover is None:
+            mp4list = []
+            # 2.1 如果没有指定外壳视频路径, 则自动在程序同路径下的 cover_video 文件夹中寻找第一个文件
+            cover_video_path = os.path.join(application_path, 'cover_video')
+            if os.path.exists(cover_video_path):
+                mp4list = [os.path.join(cover_video_path, item) for item in os.listdir(cover_video_path) if item.endswith('.mp4')]
+            
+            # 2.2 否则使用程序所在目录中的第一个mp4文件
+            mp4list += [os.path.join(application_path, item) for item in os.listdir(application_path) if item.endswith('.mp4')]  # 程序所在目录
+            
+            # 2.3 假如以上都没找到,那么就在输入文件/目录所在目录下寻找
+            if not mp4list:
+                input_dir = os.path.dirname(os.path.abspath(args.input)) # 获取输入文件/文件夹的父目录
+                mp4list += [os.path.join(input_dir, item) for item in os.listdir(input_dir) if item.endswith('.mp4')]  # 输入文件/目录所在目录
+
+            if mp4list:
+                args.cover = mp4list[0]
+            else:
+                print('请指定外壳MP4文件')
+                exit(1)  # 退出程序
+
+        print(f"输入文件/文件夹路径: {args.input}")
+        print(f"输出文件/文件夹路径: {args.output}")
+        print(f"密码: {args.password}")
+        print(f"输出文件类型: {args.type}")
+        print(f"外壳MP4视频路径: {args.cover}")
+        print(f"执行解除隐写: {args.reveal}")
+
         steganographier.run_cli(args)
     else:
+        print('GUI') 
         SteganographierGUI()
