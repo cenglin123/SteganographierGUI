@@ -18,7 +18,7 @@ options:
   -i INPUT, --input INPUT
                         输入文件/文件夹路径
   -o OUTPUT, --output OUTPUT
-                        输出隐写文件的包含后缀名在内的的相对路径或绝对路径
+                        输出隐写文件的包含后缀名在内的相对路径或绝对路径
   -p PASSWORD, --password PASSWORD
                         设置密码
   -t {mp4,mkv}, --type {mp4,mkv}
