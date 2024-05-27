@@ -4,6 +4,77 @@
 
 ## 更新
 
+### 隐写者 Ver.1.1.1 CLI
+
+作者： 层林尽染
+
+
+
+#### 使用说明
+
+本程序可以将文件或文件夹隐写到视频文件中，或从视频文件中提取隐写的文件或文件夹。程序支持命令行界面 (CLI) 和图形用户界面 (GUI) 两种模式。
+
+1. **GUI** 模式： 直接运行程序，不带任何参数。关于GUI的用法详见演示视频。
+
+2. **CLI** 模式： 使用以下参数运行程序：
+
+   ```
+   -i, --input     指定输入文件或文件夹的路径。如果不使用任何参数标签，程序会将第一个未知参数视为输入路径。
+   -o, --output    1. 指定输出文件名(包含后缀名) [或] 2. 指定输出路径(默认为原文件名+"_hidden.mp4/mkv")。
+   -p, --password  设置密码 (默认无密码)。
+   -t, --type      设置输出文件类型 (默认为mp4)，支持mp4和mkv两种格式。
+   -c, --cover     指定外壳MP4视频（如果不指定，程序会按照以下顺序搜索：
+                      - 程序同路径下的cover_video文件夹
+                      - 程序所在目录
+                      - 输入文件或目录的父目录）
+   -r, --reveal    执行解除隐写。
+   ```
+
+
+
+#### 使用示例
+
+1. 隐写文件：
+
+   ```
+   python Steganographier.py -i "input.txt" -o "output.mp4" -p "password" -t "mp4" -c "cover.mp4"
+   python Steganographier.py -i "input.txt" -o "outputFolder" -p "password" -t "mp4" -c "cover.mp4"
+   ```
+
+2. 提取文件：
+
+   ```
+   python Steganographier.py -i "input.mp4" -r -p "password"
+   ```
+
+3. 仅指定输入文件，使用默认设置：
+
+   ```
+   python Steganographier.py "input.txt"
+   ```
+
+4. 隐写文件夹：
+
+   ```
+   python Steganographier.py -i "inputFolder" -o "outputFolder" -p "password" -t "mp4"
+   python Steganographier.py -i "inputFolder" -o "output.mp4" -p "password" -t "mp4"
+   ```
+
+
+
+#### 注意事项
+
+1. 如果没有指定输出文件路径，程序会在输入文件同目录下创建默认的输出文件，文件名为原文件名 + `_hidden.mp4/mkv`。
+2. 如果指定了输出路径但没有指定文件名，程序会在指定输出路径下创建一个默认的输出文件，文件名为原文件名 + `_hidden.mp4/mkv`。
+3. 如果输入路径是一个文件夹，程序将隐写整个文件夹。
+4. 如果没有指定外壳MP4视频，程序会按照以下顺序搜索：
+   - 程序同路径下的 `cover_video` 文件夹
+   - 程序所在目录
+   - 输入文件或目录的父目录
+5. 程序会在程序同路径下查找 `cover_video` 文件夹。如果该文件夹存在，程序会在其中搜索 .mp4 文件。如果该文件夹不存在，程序会跳过这一步，继续在其他位置搜索。
+
+**Full Changelog**: https://github.com/cenglin123/SteganographierGUI/compare/v1.1.0...v1.1.1
+
 **v1.1.0 版本进位**
 
 新增命令行调用的 CLI 模式，模式命令如下：
@@ -31,6 +102,8 @@ options:
 ```
 (hide) C:\Users\xxxx>隐写者.exe -i D:\测试\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试\123.mp4
 ```
+
+* * *
 
 **v1.0.10 改进：**
 ```
