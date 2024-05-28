@@ -86,26 +86,21 @@ def get_video_files_info(folder_path):
 
 class SteganographierGUI:
     def __init__(self):
-        self.steganographier = Steganographier()                            # 创建一个Steganographier类的实例
-        self.steganographier.set_progress_callback(self.update_progress)    # GUI进度条回调显示函数
-        self.output_option = '原文件名'                                      # 设置默认值
+        self.video_folder_path = os.path.join(application_path, "cover_video")  # 定义实例变量 默认外壳MP4文件路径
+        self.steganographier = Steganographier(self.video_folder_path)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
+        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数
+
+        self.output_option  = '原文件名'                                          # 设置默认值
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
         self.title = "隐写者 Ver.1.1.1 GUI 作者: 层林尽染"
-        self.video_folder_path = os.path.join(application_path, "cover_video") # 外壳MP4文件路径
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
         self.remaining_video_files = [] # 随机选择 初始化未被选择过的外壳MP4文件列表
         self.create_widgets()           # GUI实现部分
 
-    def initialize_video_files(self):
-        """初始化剩余可用的外壳文件列表"""
-        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
-        random.shuffle(video_files)  # 随机排序
-        self.remaining_video_files = video_files
-        
     # 窗口控件初始化方法
     def create_widgets(self):
         def clear_default_password(event):
@@ -230,12 +225,19 @@ class SteganographierGUI:
         
         self.root.mainloop()
 
+    # 外壳MP4文件路径传参更新函数
+    def update_video_folder_path(self, new_path):
+        self.video_folder_path = new_path
+        self.steganographier.video_folder_path = new_path  # 更新Steganographier实例的video_folder_path
+
+    # 选择外壳MP4文件夹函数
     def select_video_folder(self):
         folder_path = filedialog.askdirectory()
         if folder_path:
             self.video_folder_path = folder_path
             self.video_folder_entry.delete(0, tk.END)
             self.video_folder_entry.insert(0, folder_path)
+            self.update_video_folder_path(folder_path)  # 调用方法更新video_folder_path
             
             # 更新外壳MP4视频文件列表和信息
             video_options = get_video_files_info(self.video_folder_path)
@@ -365,15 +367,26 @@ class SteganographierGUI:
 
 
 class Steganographier:
-    def __init__(self):
+    '''隐写的具体功能由此类实现'''
+    def __init__(self, video_folder_path=None):
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.video_folder_path = os.path.join(application_path, "cover_video")
+        if video_folder_path:
+            self.video_folder_path = video_folder_path
+        else:
+            self.video_folder_path = os.path.join(application_path, "cover_video")  # 默认路径
+        print(f"外壳文件夹路径：{self.video_folder_path}")
         self.total_file_size = None
         self.password = None
         self.remaining_video_files = []
         self.progress_callback = None
+
+    def initialize_video_files(self):
+        """初始化剩余可用的外壳文件列表"""
+        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
+        random.shuffle(video_files)  # 随机排序
+        self.remaining_video_files = video_files
 
     def set_progress_callback(self, callback): # GUI进度条回调
         self.progress_callback = callback
@@ -506,11 +519,11 @@ class Steganographier:
         self.type_option                = type_option
         self.output_option              = output_option
         self.output_video_name_mode     = output_video_name_mode
-        self.password = password
+        self.password                   = password
 
         # 1~2. 隐写外壳文件选择
         cover_video_path = self.choose_cover_video_file(cover_video=cover_video, processed_files=processed_files, output_video_name_mode=output_video_name_mode)
-        print(f"隐写外壳文件：{cover_video_path}")
+        print(f"实际隐写外壳文件：{cover_video_path}")
                 
         # 3. 隐写的临时zip文件名
         zip_file_path = os.path.join(os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files}.zip")
@@ -532,7 +545,6 @@ class Steganographier:
             # 7.1. 隐写MP4文件的逻辑
             if type_option == 'mp4':
                 output_file = self.get_output_file_path(input_file_path, output_file_path, processed_files, self.output_option, self.output_video_name_mode)
-                print(f"output_file: {output_file}")
 
                 self.log(f"Output file: {output_file}")
             
@@ -796,6 +808,13 @@ class Steganographier:
         # self.type_option_var = argparse.Namespace()
         # self.type_option_var.get = lambda: args.type # 模拟.get() 方法
 
+        print(f"输入文件/文件夹路径: {args.input}")
+        print(f"输出文件/文件夹路径: {args.output}")
+        print(f"密码: {args.password}")
+        print(f"输出文件类型: {args.type}")
+        print(f"设定外壳MP4视频路径: {args.cover}")
+        print(f"执行解除隐写: {args.reveal}")
+
         self.type_option = args.type
         
         if not args.reveal:
@@ -808,9 +827,6 @@ class Steganographier:
             self.hide_file(input_file_path=args.input, cover_video=args.cover, password=args.password, output_file_path=output_file, type_option=self.type_option)  # 调用hide_file方法
         else:
             self.reveal_file(input_file_path=args.input, password=args.password, type_option=self.type_option)  # 调用reveal_file方法
-
-    # def run_gui(self):
-    #     SteganographierGUI()
 
 if __name__ == "__main__":
     # 关于程序执行路径的问题
@@ -834,8 +850,7 @@ if __name__ == "__main__":
 
     if args.input:
         print('CLI')
-        steganographier = Steganographier()
-
+        # 首先调整传入的参数
         # 1. 处理输出路径
         if args.output is None:
             # 1.1 如果没有指定输出文件路径, 则默认和输入文件同路径, 使用原文件名+"_hidden.mp4/mkv"
@@ -872,14 +887,9 @@ if __name__ == "__main__":
                 print('请指定外壳MP4文件')
                 exit(1)  # 退出程序
 
-        print(f"输入文件/文件夹路径: {args.input}")
-        print(f"输出文件/文件夹路径: {args.output}")
-        print(f"密码: {args.password}")
-        print(f"输出文件类型: {args.type}")
-        print(f"外壳MP4视频路径: {args.cover}")
-        print(f"执行解除隐写: {args.reveal}")
-
+        steganographier = Steganographier()
         steganographier.run_cli(args)
+
     else:
         print('GUI') 
         SteganographierGUI()
