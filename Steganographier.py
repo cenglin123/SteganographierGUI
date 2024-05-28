@@ -125,7 +125,7 @@ class SteganographierGUI:
     def __init__(self):
         self.video_folder_path = os.path.join(application_path, "cover_video")  # 定义实例变量 默认外壳MP4文件存储路径
         self.steganographier = Steganographier(self.video_folder_path)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
-        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把进度条传给逻辑层
+        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把逻辑层的进度传回GUI
         self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传给GUI
 
         self.output_option  = '原文件名'                                          # 设置默认值
