@@ -126,8 +126,9 @@ class SteganographierGUI:
     def __init__(self):
         self.video_folder_path = os.path.join(application_path, "cover_video")  # 定义实例变量 默认外壳MP4文件存储路径
         self.steganographier = Steganographier(self.video_folder_path)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
-        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把逻辑层的进度传回GUI
-        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传给GUI
+        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层，从而把逻辑层的进度传回GUI
+        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
+        self.steganographier.set_log_callback(self.log)     # log回调函数
 
         self.output_option  = '原文件名'                                          # 设置输出模式的默认值
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
@@ -418,7 +419,7 @@ class SteganographierGUI:
         processed_files = 0
         for input_file_path in hide_file_paths:
             if input_file_path:
-                self.steganographier.hide_file(input_file_path, 
+                self.steganographier.hide_file(input_file_path=input_file_path, 
                                             password=self.password,
                                             processed_files=processed_files,
                                             output_option=self.output_option_var.get(),
@@ -432,7 +433,7 @@ class SteganographierGUI:
         processed_files = 0
         for input_file_path in reveal_file_paths:
             if input_file_path:
-                self.steganographier.reveal_file(input_file_path, 
+                self.steganographier.reveal_file(input_file_path=input_file_path, 
                                                  password=self.password, 
                                                  type_option=self.type_option_var.get())
                 processed_files += 1
@@ -494,14 +495,15 @@ class Steganographier:
         random.shuffle(cover_video_files)  # 随机排序
         self.remaining_cover_video_files = cover_video_files
 
-    def set_progress_callback(self, callback):              # GUI进度条回调函数
+    # GUI回调函数部分
+    def set_progress_callback(self, callback):              # GUI进度条回调函数，callback代表自GUI传入的进度条函数
         self.progress_callback = callback
 
     def set_cover_video_duration_callback(self, callback):  # 外壳MP4文件回调函数
         self.cover_video_duration_callback = callback
 
-    def log(self, message): # CLI模式专属log方法
-        print(message)
+    def set_log_callback(self, callback):   # GUI log方法回调函数, 把GUI的self.log方法(这里用callback指代)传给逻辑层，逻辑层再借self.log_callback把log信息传回GUI
+        self.log_callback = callback
 
     def read_in_chunks(self, file_object, chunk_size=1024*1024):
         while True:
@@ -509,6 +511,9 @@ class Steganographier:
             if not data:
                 break
             yield data
+
+    def log(self, message): # CLI模式专属log方法
+        print(message)
 
     def save_config(self): # 保存配置文件的方法（开发中）
         config_json = {
@@ -590,7 +595,7 @@ class Steganographier:
                         # 更新已处理的大小并更新进度条
                         processed_size += os.path.getsize(file_full_path)
                         if self.progress_callback:
-                            self.progress_callback(processed_size, self.total_file_size)
+                            self.progress_callback(processed_size, self.total_file_size) # 此处使用的进度条函数来自GUI传入的回调函数
             else:
                 # 否则只隐写该文件
                 zip_file.write(input_file_path, os.path.basename(input_file_path))
@@ -651,6 +656,7 @@ class Steganographier:
                                                         cover_video_path)
 
                 self.log(f"Output file: {output_file}")
+                self.log_callback(f"Output file: {output_file}")
             
                 try:
                     total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
@@ -659,6 +665,7 @@ class Steganographier:
                         with open(zip_file_path, "rb") as file2:
                             with open(output_file, "wb") as output:
                                 self.log(f"Hiding file: {input_file_path}")
+                                self.log_callback(f"Hiding file: {input_file_path}")
 
                                 # 外壳 MP4 文件
                                 for chunk in self.read_in_chunks(file1):
@@ -741,6 +748,7 @@ class Steganographier:
                 
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
+                    self.log_callback(f"在写入MP4文件时发生未预料的错误: {str(e)}")
                     raise
 
             # 7.2. 隐写mkv文件的逻辑
@@ -761,6 +769,7 @@ class Steganographier:
                         f.write(random_bytes)
 
                     self.log(f"Output file: {output_file}")
+                    self.log_callback(f"Output file: {output_file}")
                     cmd = [
                         self.mkvmerge_exe, '-o',
                         output_file, cover_video_path,
@@ -768,6 +777,7 @@ class Steganographier:
                         '--attach-file', random_data_path,
                     ]
                     self.log(f"Hiding file: {input_file_path}")
+                    self.log_callback(f"Hiding file: {input_file_path}")
                     result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
                     
                     # 删除临时随机字节
@@ -778,22 +788,26 @@ class Steganographier:
 
                 except subprocess.CalledProcessError as cpe:
                     self.log(f"隐写时发生错误: {str(cpe)}")
+                    self.log_callback(f"隐写时发生错误: {str(cpe)}")
                     self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
                     self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
                     raise
 
                 except Exception as e:
                     self.log(f"在执行mkvmerge时发生未预料的错误: {str(e)}")
+                    self.log_callback(f"在执行mkvmerge时发生未预料的错误: {str(e)}")
                     raise
 
         except Exception as e:
             self.log(f"隐写时发生未预料的错误: {str(e)}")
+            self.log_callback(f"隐写时发生未预料的错误: {str(e)}")
             raise
         finally:
             # 8. 删除临时zip文件
             os.remove(zip_file_path)
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
+        self.log_callback(f"Output file created: {os.path.exists(output_file)}")
 
         # 9. 保存配置文件
         self.save_config()
@@ -813,13 +827,17 @@ class Steganographier:
 
         print(f'type option: {self.type_option}')
         if self.type_option == 'mp4':
+            print(f'input_file_path: {input_file_path}')
+            print(f'cover_video_path: {cover_video_path}')
 
             # 输出文件名选择
+            print(f'output_option: {output_option}')
             if output_option == '原文件名':
                 output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
             elif output_option == '外壳文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
-                                        os.path.splitext(cover_video_path)[0] + f'_{processed_files+1}.mp4')
+                                                os.path.split(cover_video_path)[1].replace('.mp4', f'_{processed_files+1}.mp4')
+                                                )
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
