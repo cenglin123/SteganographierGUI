@@ -105,22 +105,21 @@ def format_size(size):
 def check_size_and_duration(size, duration_seconds):
     duration_minutes = duration_seconds / 60
     # 根据参考标准判断
-    if size <= 100 * 1024 * 1024 and (duration_minutes < 1 or duration_minutes > 3):
+    if size <= 200 * 1024*1024 and duration_minutes < 1:
         return False
-    elif 100 * 1024 * 1024 < size <= 200 * 1024 * 1024 and (duration_minutes < 3 or duration_minutes > 15):
+    elif 200 * 1024*1024 < size <= 400 * 1024*1024 and duration_minutes < 3:
         return False
-    elif 200 * 1024 * 1024 < size <= 500 * 1024 * 1024 and (duration_minutes < 15 or duration_minutes > 30):
+    elif 400 * 1024*1024 < size <= 500 * 1024*1024 and duration_minutes < 15:
         return False
-    elif 500 * 1024 * 1024 < size <= 1 * 1024 * 1024 * 1024 and (duration_minutes < 30 or duration_minutes > 60):
+    elif 500 * 1024*1024 < size <= 1 * 1024*1024*1024 and duration_minutes < 30:
         return False
-    elif 1 * 1024 * 1024 * 1024 < size <= 3 * 1024 * 1024 * 1024 and duration_minutes != 60:
+    elif 1 * 1024*1024*1024 < size <= 3 * 1024*1024*1024 and duration_minutes < 60:
         return False
-    elif 3 * 1024 * 1024 * 1024 < size <= 4 * 1024 * 1024 * 1024 and duration_minutes != 120:
+    elif 3 * 1024*1024*1024 < size <= 4 * 1024*1024*1024 and duration_minutes < 120:
         return False
-    elif size > 4 * 1024 * 1024 * 1024 and duration_minutes <= 120:
+    elif size > 4 * 1024*1024*1024 and duration_minutes <= 120:
         return False
     return True
-
 
 class SteganographierGUI:
     '''GUI：隐写者程序表示层'''
@@ -298,9 +297,9 @@ class SteganographierGUI:
 建议值：
 文件大小		外壳视频时长
 --------------------------------
-0-100MB		1-3分钟
-100-200MB	3-15分钟
-200-500MB	15-30分钟
+0-200MB		1-3分钟
+200-400MB	3-15分钟
+400-500MB	15-30分钟
 500MB-1GB	30分钟-1小时
 1GB-3GB		1小时
 3GB-4GB		2小时
