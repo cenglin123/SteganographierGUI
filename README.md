@@ -4,7 +4,7 @@
 
 ## 更新
 
-### 隐写者 Ver.1.1.1 CLI
+### 隐写者 Ver.1.1.2 CLI
 
 作者： 层林尽染
 
@@ -76,6 +76,14 @@
 **Full Changelog**: https://github.com/cenglin123/SteganographierGUI/compare/v1.1.0...v1.1.1
 
 * * *
+**v1.1.2 更新**
+
+新增隐写大小-外壳时长不合理提醒
+
+**v1.1.1 更新**
+
+修复BUG
+
 
 **v1.1.0 版本进位**
 
