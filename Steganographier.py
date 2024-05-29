@@ -60,7 +60,7 @@ def get_video_duration(filepath):
     finally:
         parser.stream._input.close()
 
-def get_video_files_info(folder_path):
+def get_cover_video_files_info(folder_path, sort_by_duration=False):
     videos = []
     for filename in os.listdir(folder_path):
         if filename.endswith(".mp4"):
@@ -74,13 +74,14 @@ def get_video_files_info(folder_path):
             videos.append({
                 "filename": filename,
                 "duration": formatted_duration,
-                "duration_seconds": duration_seconds or 0,  # Use 0 for unknown durations for sorting
+                "duration_seconds": duration_seconds or 0,  # 时长未知则为0
                 "size": format_size(size)
             })
-    # Sort the videos by duration in descending order
-    videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
+    # 按总时长降序排列
+    if sort_by_duration:
+        videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
     
-    # Format for display
+    # 格式化显示
     formatted_videos = [f"{video['filename']} - {video['duration']} - {video['size']}" for video in videos]
     return formatted_videos
 
@@ -104,21 +105,22 @@ def format_size(size):
 def check_size_and_duration(size, duration_seconds):
     duration_minutes = duration_seconds / 60
     # 根据参考标准判断
-    if size <= 100 * 1024*1024 and duration_minutes < 1:
+    if size <= 100 * 1024 * 1024 and (duration_minutes < 1 or duration_minutes > 3):
         return False
-    elif 100 * 1024*1024 < size <= 200 * 1024*1024 and duration_minutes < 4:
+    elif 100 * 1024 * 1024 < size <= 200 * 1024 * 1024 and (duration_minutes < 3 or duration_minutes > 15):
         return False
-    elif 200 * 1024*1024 < size <= 500 * 1024*1024 and duration_minutes < 15:
+    elif 200 * 1024 * 1024 < size <= 500 * 1024 * 1024 and (duration_minutes < 15 or duration_minutes > 30):
         return False
-    elif 500 * 1024*1024 < size <= 1 * 1024*1024*1024 and duration_minutes < 30:
+    elif 500 * 1024 * 1024 < size <= 1 * 1024 * 1024 * 1024 and (duration_minutes < 30 or duration_minutes > 60):
         return False
-    elif 1 * 1024*1024*1024 < size <= 3 * 1024*1024*1024 and duration_minutes < 60:
+    elif 1 * 1024 * 1024 * 1024 < size <= 3 * 1024 * 1024 * 1024 and duration_minutes != 60:
         return False
-    elif 3 * 1024*1024*1024 < size <= 4 * 1024*1024*1024 and duration_minutes < 120:
+    elif 3 * 1024 * 1024 * 1024 < size <= 4 * 1024 * 1024 * 1024 and duration_minutes != 120:
         return False
-    elif size > 4 * 1024*1024*1024 and duration_minutes <= 120:
+    elif size > 4 * 1024 * 1024 * 1024 and duration_minutes <= 120:
         return False
     return True
+
 
 class SteganographierGUI:
     '''GUI：隐写者程序表示层'''
@@ -128,8 +130,7 @@ class SteganographierGUI:
         self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把逻辑层的进度传回GUI
         self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传给GUI
 
-        self.output_option  = '原文件名'                                          # 设置默认值
-        self.cover_video    = None
+        self.output_option  = '原文件名'                                          # 设置输出模式的默认值
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
@@ -137,6 +138,8 @@ class SteganographierGUI:
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
+        self.check_file_size_and_duration_warned = False # 追踪是否警告过文件大小-外壳时长匹配问题
+        self.cover_video_options = []         # 外壳MP4文件列表
         self.create_widgets()           # GUI实现部分
 
     # 1. 窗口控件初始化方法
@@ -222,20 +225,20 @@ class SteganographierGUI:
         self.video_folder_button.pack(side=tk.LEFT, padx=5)
         
         if os.path.exists(self.video_folder_path):
-            video_options = get_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和信息
+            self.cover_video_options = get_cover_video_files_info(self.video_folder_path) # 获取外壳MP4视频文件列表和时长-大小信息
         else:
-            video_options = []  # 如果文件夹不存在，提供一个默认的空列表
+            self.cover_video_options = []  # 如果文件夹不存在，提供一个默认的空列表
             
         self.output_cover_video_name_mode_var = tk.StringVar()
-        if video_options:
-            self.output_cover_video_name_mode_var.set(video_options[0])  # 默认选择第一个视频文件
+        if self.cover_video_options:
+            self.output_cover_video_name_mode_var.set(self.cover_video_options[0])  # 默认选择菜单中的第一个视频文件
             # self.output_cover_video_name_mode_var.set('===============名称顺序模式===============')  # 默认选择模式
         else:
             self.output_cover_video_name_mode_var.set("No videos found")
         
         self.video_option_menu = tk.OptionMenu(self.root, 
-                                               self.output_cover_video_name_mode_var, 
-                                               *video_options,
+                                               self.output_cover_video_name_mode_var,   # 默认选择
+                                               *self.cover_video_options,               # 其余选择
                                                 '===============随机选择模式===============', 
                                                 '===============时长顺序模式===============',
                                                 '===============名称顺序模式===============')
@@ -254,7 +257,7 @@ class SteganographierGUI:
         self.start_button = tk.Button(button_frame, text="开始执行", command=self.start_thread, width=10, height=2)
         self.start_button.pack(side=tk.LEFT, padx=5)
         
-        self.clear_button = tk.Button(button_frame, text="清除窗口", command=self.clear, width=10, height=2)
+        self.clear_button = tk.Button(button_frame, text="程序复位", command=self.clear, width=10, height=2)
         self.clear_button.pack(side=tk.LEFT, padx=5)
         
         # 1.6 进度条
@@ -268,40 +271,43 @@ class SteganographierGUI:
         file_paths = self.root.tk.splitlist(event.data)
         self.hide_text.insert(tk.END, "\n".join(file_paths) + "\n")
         for idx, file_path in enumerate(file_paths):
-            self.log(f"输入[{idx+1}]: {os.path.split(file_path)[1]}")
-            
+            size = get_file_or_folder_size(file_path)
             # 2.1 由逻辑层传入当前正在使用的外壳MP4文件, 用来进行大小-时长检查
             cover_video_path = self.steganographier.choose_cover_video_file(
                 processed_files=idx,
-                output_cover_video_name_mode=self.output_cover_video_name_mode_var.get()
+                output_cover_video_name_mode=self.output_cover_video_name_mode_var.get(),
+                video_folder_path=self.video_folder_path,
             )
             duration_seconds = get_video_duration(cover_video_path)
             self.check_file_size_and_duration(file_path, duration_seconds, idx)
+            self.log(f"输入[{idx+1}]: {os.path.split(file_path)[1]}, 文件/文件夹大小 {format_size(size)}, 预定外壳时长 {format_duration(duration_seconds)}")
 
     # 2.a 检查输入大小-外壳时长, 并给出建议
     def check_file_size_and_duration(self, file_path, duration_seconds, idx=0):
         size = get_file_or_folder_size(file_path)
-        if not check_size_and_duration(size, duration_seconds):
-            messagebox.showinfo("Warning", self.get_warning_text(size, duration_seconds, idx))
+        if not check_size_and_duration(size, duration_seconds) and self.check_file_size_and_duration_warned == False:
+            messagebox.showinfo("===========【文件隐写不合理提醒】===========", self.get_warning_text(size, duration_seconds, idx))
+            self.check_file_size_and_duration_warned = True
     
     # 2.b 给出建议的text文本
     def get_warning_text(self, size, duration_seconds, idx):
-        return f'''
-            文件 [{idx+1}] 体积为 {format_size(size)}, 当前外壳视频时长: {format_duration(duration_seconds)}
-            体积大时长短的文件容易引起怀疑, 建议分卷压缩后再进行隐写，
-            或者选取较长的外壳视频.
-            
-            建议文件大小-外壳视频时长:
-            文件大小	外壳视频时长
-            --------------------------
-            0-100MB	1-3分钟
-            100-200MB	4-15分钟
-            200-500MB	15-30分钟
-            500MB-1GB	30分钟-1小时
-            1GB-3GB	1小时
-            3GB-4GB	2小时
-            4GB以上	2小时以上
-        '''
+        return f'''输入 [{idx+1}] 体积为 {format_size(size)}, 预定外壳 [{idx+1}] 时长: {format_duration(duration_seconds)}
+
+【体积较大但时长较短】的文件容易【引起怀疑】, 建议【分卷压缩】后再进行隐写, 或者选取较长的外壳视频, 本警告程序复位前仅提醒 1 次, 可参照下列建议值检查其他文件是否存在问题. 
+
+建议值：
+文件大小		外壳视频时长
+--------------------------------
+0-100MB		1-3分钟
+100-200MB	3-15分钟
+200-500MB	15-30分钟
+500MB-1GB	30分钟-1小时
+1GB-3GB		1小时
+3GB-4GB		2小时
+>4GB		2小时以上
+
+本弹窗仅为提醒, 并非报错, 可以坚持执行.
+'''
 
     # 3. 解除隐写文件的拖入方法
     def reveal_files_dropped(self, event):
@@ -326,20 +332,20 @@ class SteganographierGUI:
             self.update_video_folder_path(folder_path)  # 调用方法更新video_folder_path
             
             # 4.a.1 更新外壳MP4视频文件列表和信息
-            video_options = get_video_files_info(self.video_folder_path)         
-            video_options +=  ['===============随机选择模式===============', 
-                               '===============时长顺序模式===============', 
-                               '===============名称顺序模式===============']
+            self.cover_video_options = get_cover_video_files_info(self.video_folder_path)         
+            self.cover_video_options +=  ['===============随机选择模式===============', 
+                                            '===============时长顺序模式===============', 
+                                            '===============名称顺序模式===============']
             if not [item for item in os.listdir(self.video_folder_path) if item.lower().endswith('.mp4')]:
                 messagebox.showwarning("Warning", "文件夹下没有MP4文件，请添加文件后继续.")
                 self.output_cover_video_name_mode_var.set("No videos found")
                 self.video_option_menu['menu'].delete(0, 'end')
                 return
 
-            self.output_cover_video_name_mode_var.set(video_options[0]) # 默认选择第一个文件
+            self.output_cover_video_name_mode_var.set(self.cover_video_options[0]) # 默认选择第一个文件
             # self.output_cover_video_name_mode_var.set('===============名称顺序模式===============')
             self.video_option_menu['menu'].delete(0, 'end')
-            for option in video_options:
+            for option in self.cover_video_options:
                 self.video_option_menu['menu'].add_command(label=option, 
                                                             command=tk._setit(self.output_cover_video_name_mode_var, option))
 
@@ -418,7 +424,8 @@ class SteganographierGUI:
                                             processed_files=processed_files,
                                             output_option=self.output_option_var.get(),
                                             output_cover_video_name_mode=self.output_cover_video_name_mode_var.get(),
-                                            type_option=self.type_option_var.get())
+                                            type_option=self.type_option_var.get(),
+                                            video_folder_path=self.video_folder_path)
                 processed_files += 1
                 self.update_progress(processed_files, total_files)
         
@@ -453,6 +460,7 @@ class SteganographierGUI:
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
+        self.check_file_size_and_duration_warned = False
 
 
     
@@ -473,23 +481,24 @@ class Steganographier:
         if video_folder_path:
             self.video_folder_path = video_folder_path
         else:
-            self.video_folder_path = os.path.join(application_path, "cover_video")  # 默认路径
+            self.video_folder_path = os.path.join(application_path, "cover_video")  # 默认外壳文件存放路径
         print(f"外壳文件夹路径：{self.video_folder_path}")
-        self.total_file_size = None
-        self.password = None
-        self.remaining_video_files = []
-        self.progress_callback = None
+        self.total_file_size                = None      # 被隐写文件/文件夹的总大小
+        self.password                       = None      # 密码
+        self.remaining_cover_video_files    = []        # 随机选择模式时的剩余外壳文件列表
+        self.progress_callback              = None      # 进度条回调参数
+        self.cover_video_path               = None      # 包含完整路径的外壳文件
 
-    def initialize_video_files(self):
+    def initialize_cover_video_files(self):
         """随机选择模式-初始化剩余可用的外壳文件列表"""
-        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
-        random.shuffle(video_files)  # 随机排序
-        self.remaining_video_files = video_files
+        cover_video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
+        random.shuffle(cover_video_files)  # 随机排序
+        self.remaining_cover_video_files = cover_video_files
 
-    def set_progress_callback(self, callback): # GUI进度条回调函数
+    def set_progress_callback(self, callback):              # GUI进度条回调函数
         self.progress_callback = callback
 
-    def set_cover_video_duration_callback(self, callback): # 外壳MP4文件回调函数
+    def set_cover_video_duration_callback(self, callback):  # 外壳MP4文件回调函数
         self.cover_video_duration_callback = callback
 
     def log(self, message): # CLI模式专属log方法
@@ -502,45 +511,55 @@ class Steganographier:
                 break
             yield data
 
-    def save_config(self):
+    def save_config(self): # 保存配置文件的方法（开发中）
         config_json = {
             'self.video_folder_path': self.video_folder_path,
             'self.password': self.password,
 
         }
 
-    def choose_cover_video_file(self, cover_video_CLI=None, processed_files=None, output_cover_video_name_mode=None):
-        # 外壳文件选择
+    def choose_cover_video_file(self, cover_video_CLI=None, 
+                                processed_files=None, 
+                                output_cover_video_name_mode=None,
+                                video_folder_path=None):
+        # 外壳文件选择: CLI模式
         if cover_video_CLI:  # 如果指定了外壳文件名就使用之（CLI模式）绝对路径
             return cover_video_CLI
 
+        # 外壳文件选择：GUI模式
         # 1. 检查cover_video中是否存在用来作为外壳的MP4文件（比如海绵宝宝之类，数量任意，每次随机选择）
-        video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]  # 按默认排序选择
-        if not video_files:
-            raise Exception(f"{self.video_folder_path} 文件夹下没有文件，请添加文件后继续.")
+        cover_video_files = [f for f in os.listdir(video_folder_path) if f.endswith(".mp4")]  # 按默认排序选择
+        if not cover_video_files:
+            raise Exception(f"{video_folder_path} 文件夹下没有文件，请添加文件后继续.")
 
         # 2. 否则在cover_video中选择
         if output_cover_video_name_mode == '===============随机选择模式===============':
             # 2-a. 随机选择一个外壳MP4文件用来隐写，尽量不重复
-            if not self.remaining_video_files:
-                self.initialize_video_files()
-            video_file = self.remaining_video_files.pop()
+            if not self.remaining_cover_video_files:
+                self.initialize_cover_video_files()
+            cover_video = self.remaining_cover_video_files.pop()
+            print(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============时长顺序模式===============':
             # 2-b. 按时长顺序选择一个外壳MP4文件用来隐写
-            video_files = get_video_files_info(self.video_folder_path)  # 按时长顺序选择
-            video_file = video_files[processed_files % len(video_files)]
+            cover_video_files = get_cover_video_files_info(video_folder_path, sort_by_duration=True)  # 按时长顺序选择
+            cover_video = cover_video_files[processed_files % len(cover_video_files)]
+            cover_video = cover_video[:cover_video.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分, 以去除后续可能存在的时长大小等内容
+            print(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============名称顺序模式===============':
             # 2-c. 按名称顺序选择一个外壳MP4文件用来隐写
-            video_file = video_files[processed_files % len(video_files)]
+            cover_video = cover_video_files[processed_files % len(cover_video_files)]
+            print(output_cover_video_name_mode, cover_video)
 
         else:
             # 2-d. 根据下拉菜单选择外壳MP4文件
-            video_file = output_cover_video_name_mode
-
-        self.cover_video_file = video_file[:video_file.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分
-        cover_video_path = os.path.join(self.video_folder_path, self.cover_video_file)
+            cover_video = output_cover_video_name_mode
+            cover_video = cover_video[:cover_video.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分, 以去除后续可能存在的时长大小等内容
+            print(f'下拉菜单模式, 视频信息: {output_cover_video_name_mode}')
+        
+        cover_video_path = os.path.join(video_folder_path, cover_video)
+        print(f'cover_video_path: {cover_video_path}')
         return cover_video_path
     
     def compress_files(self, zip_file_path, input_file_path, processed_size=0, password=None):
@@ -581,39 +600,6 @@ class Steganographier:
                 if self.progress_callback:
                     self.progress_callback(processed_size, self.total_file_size)
 
-    def get_output_file_path(self, input_file_path=None, output_file_path=None, processed_files=0, output_option=None, output_cover_video_name_mode=None):
-
-        # 输出文件名指定
-        if output_file_path:
-            return output_file_path # 如果指定了输出文件名就用输出文件名（CLI模式）
-
-        print(f'type option: {self.type_option}')
-        if self.type_option == 'mp4':
-
-            # 输出文件名选择
-            if self.output_option == '原文件名':
-                output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
-            elif self.output_option == '外壳文件名':
-                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
-                                        os.path.splitext(self.cover_video_file)[0] + f'_{processed_files+1}.mp4')
-            elif self.output_option == '随机文件名':
-                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
-                                        generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
-            print(f"output_file_path: {output_file_path}")    
-        elif self.type_option == 'mkv':
-
-            # 输出文件名选择
-            if self.output_option == '原文件名':
-                output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mkv"
-            elif self.output_option == '外壳文件名':
-                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
-                                        os.path.splitext(self.cover_video_file)[0] + f'_{processed_files+1}.mkv')          
-            elif self.output_option == '随机文件名':
-                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
-                                        generate_random_filename(length=16) + f'_{processed_files+1}.mkv')    
-        
-        return output_file_path
-
     # 隐写方法实现部分
     def hide_file(self, input_file_path, 
                   cover_video_CLI=None, 
@@ -622,15 +608,20 @@ class Steganographier:
                   output_file_path=None, 
                   output_option=None, 
                   output_cover_video_name_mode=None,
-                  type_option=None):
+                  type_option=None,
+                  video_folder_path=None):
 
         self.type_option                    = type_option
         self.output_option                  = output_option
         self.output_cover_video_name_mode   = output_cover_video_name_mode
         self.password                       = password
+        self.video_folder_path              = video_folder_path
 
-        # 1~2. 隐写外壳文件选择: 根据
-        cover_video_path = self.choose_cover_video_file(cover_video_CLI=cover_video_CLI, processed_files=processed_files, output_cover_video_name_mode=output_cover_video_name_mode)
+        # 1~2. 隐写外壳文件选择
+        cover_video_path = self.choose_cover_video_file(cover_video_CLI=cover_video_CLI, 
+                                                        processed_files=processed_files, 
+                                                        output_cover_video_name_mode=output_cover_video_name_mode,
+                                                        video_folder_path=self.video_folder_path)
         print(f"实际隐写外壳文件：{cover_video_path}")
                 
         # 3. 隐写的临时zip文件名
@@ -652,7 +643,13 @@ class Steganographier:
         try:        
             # 7.1. 隐写MP4文件的逻辑
             if type_option == 'mp4':
-                output_file = self.get_output_file_path(input_file_path, output_file_path, processed_files, self.output_option, self.output_cover_video_name_mode)
+                # 指定输出文件名
+                output_file = self.get_output_file_path(input_file_path, 
+                                                        output_file_path, 
+                                                        processed_files, 
+                                                        self.output_option, 
+                                                        self.output_cover_video_name_mode,
+                                                        cover_video_path)
 
                 self.log(f"Output file: {output_file}")
             
@@ -749,7 +746,13 @@ class Steganographier:
 
             # 7.2. 隐写mkv文件的逻辑
             elif type_option == 'mkv':
-                output_file = self.get_output_file_path(input_file_path, output_file_path, processed_files, self.output_option, self.output_cover_video_name_mode)
+                # 指定输出文件名
+                output_file = self.get_output_file_path(input_file_path, 
+                                                        output_file_path, 
+                                                        processed_files, 
+                                                        self.output_option, 
+                                                        self.output_cover_video_name_mode,
+                                                        cover_video_path)
                 
                 # 生成末尾随机字节
                 random_data_path = f"temp_{generate_random_filename(length=16)}"
@@ -795,9 +798,49 @@ class Steganographier:
 
         # 9. 保存配置文件
         self.save_config()
+
+    # 隐写时指定输出文件名+路径的方法
+    def get_output_file_path(self, input_file_path=None, 
+                             output_file_path=None, 
+                             processed_files=0, 
+                             output_option=None, 
+                             output_cover_video_name_mode=None,
+                             cover_video_path=None,
+                             ):
+
+        # 输出文件名指定
+        if output_file_path:
+            return output_file_path # 如果指定了输出文件名就用输出文件名（CLI模式）
+
+        print(f'type option: {self.type_option}')
+        if self.type_option == 'mp4':
+
+            # 输出文件名选择
+            if output_option == '原文件名':
+                output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
+            elif output_option == '外壳文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                        os.path.splitext(cover_video_path)[0] + f'_{processed_files+1}.mp4')
+            elif output_option == '随机文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                        generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
+            print(f"output_file_path: {output_file_path}")    
+        
+        elif self.type_option == 'mkv':
+
+            # 输出文件名选择
+            if output_option == '原文件名':
+                output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mkv"
+            elif output_option == '外壳文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                        os.path.splitext(cover_video_path)[0] + f'_{processed_files+1}.mkv')          
+            elif output_option == '随机文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                        generate_random_filename(length=16) + f'_{processed_files+1}.mkv')    
+        
+        return output_file_path    
     
-    
-    # 解除隐写的方法     
+    # 解除隐写的方法
     def reveal_file(self, input_file_path, password=None, type_option=None):
 
         self.type_option = type_option
@@ -935,9 +978,15 @@ class Steganographier:
                 input_file_name = os.path.splitext(os.path.basename(args.input))[0]
                 output_file = f"{input_file_name}_hidden.{args.type}"
             
-            self.hide_file(input_file_path=args.input, cover_video_CLI=args.cover, password=args.password, output_file_path=output_file, type_option=self.type_option)  # 调用hide_file方法
+            self.hide_file(input_file_path=args.input, 
+                           cover_video_CLI=args.cover, 
+                           password=args.password, 
+                           output_file_path=output_file, 
+                           type_option=self.type_option)  # 调用hide_file方法
         else:
-            self.reveal_file(input_file_path=args.input, password=args.password, type_option=self.type_option)  # 调用reveal_file方法
+            self.reveal_file(input_file_path=args.input, 
+                             password=args.password, 
+                             type_option=self.type_option)  # 调用reveal_file方法
 
 if __name__ == "__main__":
     # 关于程序执行路径的问题
