@@ -1006,6 +1006,9 @@ class Steganographier:
                              type_option=self.type_option)  # 调用reveal_file方法
 
 if __name__ == "__main__":
+    # fix gbk cmd error
+    sys.stdout.reconfigure(encoding='utf-8')
+
     # 关于程序执行路径的问题
     if getattr(sys, 'frozen', False):  # 打包成exe的情况
         application_path = os.path.dirname(sys.executable)
