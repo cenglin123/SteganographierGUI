@@ -1003,7 +1003,10 @@ class Steganographier:
 if __name__ == "__main__":
 
     # 修正CLI模式的编码问题
-    sys.stdout.reconfigure(encoding='utf-8')
+    if sys.stdout is not None:
+        sys.stdout.reconfigure(encoding='utf-8')
+    else:
+        print("sys.stdout is None")
 
     # 关于程序执行路径的问题
     if getattr(sys, 'frozen', False):  # 打包成exe的情况
