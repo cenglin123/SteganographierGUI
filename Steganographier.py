@@ -12,6 +12,7 @@ pip install hachoir
 """
 
 import os
+import io
 import sys
 # import shutil
 import random
@@ -698,7 +699,7 @@ class Steganographier:
                     with open(cover_video_path, "rb") as cover_file:
                         boxes = self.parse_mp4_boxes(cover_file)
                     
-                    # 7.1-a 找到外壳MP4文件的 moov box 并嵌入 zip 文件
+                    # 找到 moov box 并嵌入 zip 文件
                     new_boxes = []
                     for box_type, box_content in boxes:
                         if box_type == b"moov":
@@ -707,13 +708,14 @@ class Steganographier:
                         else:
                             new_boxes.append((box_type, box_content))
                     
-                    # 7.1-b 写入隐写 MP4 文件
+                    # 写入新的 MP4 文件
                     with open(output_file, "wb") as output:
                         for box_type, box_content in new_boxes:
-                            output.write(box_content)
-                            processed_size += len(box_content)
-                            if self.progress_callback:
-                                self.progress_callback(processed_size, total_size_hidden)
+                            for chunk in self.read_in_chunks(io.BytesIO(box_content)):
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                if self.progress_callback:
+                                    self.progress_callback(processed_size, total_size_hidden)
 
                         # 添加随机压缩文件特征码
                         head_signatures = {
