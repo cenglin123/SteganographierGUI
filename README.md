@@ -21,12 +21,12 @@
    ```
    -i, --input     指定输入文件或文件夹的路径。如果不使用任何参数标签，程序会将第一个未知参数视为输入路径。
    -o, --output    1. 指定输出文件名(包含后缀名) [或] 2. 指定输出路径(默认为原文件名+"_hidden.mp4/mkv")。
-   -p, --password  设置密码 (默认无密码)。
+   -p, --password  设置密码 (不指定则无密码)。
    -t, --type      设置输出文件类型 (默认为mp4)，支持mp4和mkv两种格式。
    -c, --cover     指定外壳MP4视频（如果不指定，程序会按照以下顺序搜索：
-                      - 程序同路径下的cover_video文件夹
-                      - 程序所在目录
-                      - 输入文件或目录的父目录）
+                      - 程序同目录下的cover_video文件夹下
+                      - 程序所在目录下
+                      - 输入文件或目录的所在目录下）
    -r, --reveal    执行解除隐写 (如果输入文件不是隐写文件则不进行任何操作)
    ```
 
@@ -41,24 +41,26 @@
    python Steganographier.py -i "input.txt" -o "outputFolder" -p "password" -t "mp4" -c "cover.mp4"
    ```
 
-2. 提取文件：
-
-   ```
-   python Steganographier.py -i "input.mp4" -r -p "password"
-   ```
-
-3. 仅指定输入文件，使用默认设置：
-
-   ```
-   python Steganographier.py "input.txt"
-   ```
-
-4. 隐写文件夹：
+2. 隐写文件夹：
 
    ```
    python Steganographier.py -i "inputFolder" -o "outputFolder" -p "password" -t "mp4"
    python Steganographier.py -i "inputFolder" -o "output.mp4" -p "password" -t "mp4"
    ```
+
+3. 解除隐写提取文件：
+
+   ```
+   python Steganographier.py -i "input.mp4" -r -p "password"
+   ```
+
+4. 若仅指定输入文件，则使用默认设置：
+
+   ```
+   python Steganographier.py "input.txt"
+   ```
+
+
 
 
 
@@ -72,6 +74,7 @@
    - 程序所在目录
    - 输入文件或目录的父目录
 5. 程序会在程序同路径下查找 `cover_video` 文件夹。如果该文件夹存在，程序会在其中搜索 .mp4 文件。如果该文件夹不存在，程序会跳过这一步，继续在其他位置搜索。
+6. 解除隐写时，如果输入文件不是隐写文件则不进行任何操作。
 
 **Full Changelog**: https://github.com/cenglin123/SteganographierGUI/compare/v1.1.0...v1.1.1
 
