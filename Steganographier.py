@@ -609,17 +609,17 @@ class Steganographier:
                 if self.progress_callback:
                     self.progress_callback(processed_size, self.total_file_size)
 
-    def parse_mp4_boxes(self, file):
-        boxes = []
-        while True:
-            header = file.read(8)
-            if len(header) < 8:
-                break
-            size, box_type = struct.unpack(">I4s", header)
-            size -= 8
-            box_data = file.read(size)
-            boxes.append((box_type, header + box_data))
-        return boxes
+    # def parse_mp4_boxes(self, file):
+    #     boxes = []
+    #     while True:
+    #         header = file.read(8)
+    #         if len(header) < 8:
+    #             break
+    #         size, box_type = struct.unpack(">I4s", header)
+    #         size -= 8
+    #         box_data = file.read(size)
+    #         boxes.append((box_type, header + box_data))
+    #     return boxes
 
     def construct_new_moov_box_with_zip(self, zip_file_path):
         # 读取 zip 文件内容
@@ -633,19 +633,6 @@ class Steganographier:
         new_moov_box = struct.pack(">I", moov_size) + moov_type + moov_content
 
         return new_moov_box
-    
-    def clean_mp4_boxes(self, boxes):
-        '''清除外壳MP4文件的无关元信息'''
-        cleaned_boxes = []
-        for box_type, box_content in boxes:
-            if box_type in [b"moov", b"mdat", b"free", b"skip"]:
-                cleaned_boxes.append((box_type, box_content))
-            elif box_type == b"udta":
-                # 清除 udta box 中的用户数据
-                cleaned_box_content = box_content[:8]  # 保留 box 头部
-                cleaned_boxes.append((box_type, cleaned_box_content))
-            # 可以根据需要继续处理其他 box
-        return cleaned_boxes
 
     # 隐写方法实现部分
     def hide_file(self, input_file_path, 
@@ -687,7 +674,7 @@ class Steganographier:
         processed_size = 0 # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
 
-        try:        
+        try:
             # 7.1. 隐写MP4文件的逻辑
             if type_option == 'mp4':
                 # 指定输出文件名
@@ -699,30 +686,35 @@ class Steganographier:
                                                         cover_video_path)
 
                 self.log(f"Output file: {output_file}")
-            
+
                 try:
                     total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
                     processed_size = 0
 
                     with open(cover_video_path, "rb") as file1:
-                        boxes = self.parse_mp4_boxes(file1)
+                        self.log(f"Reading cover video: {cover_video_path}")
+                        cover_video_data = file1.read()
 
                     # 创建一个新的 moov box 并嵌入 zip 文件
                     new_moov_box = self.construct_new_moov_box_with_zip(zip_file_path)
-                    boxes.append((b"moov", new_moov_box))
 
                     # 写入新的 MP4 文件
                     with open(output_file, "wb") as output:
                         self.log(f"Hiding file: {input_file_path}")
 
-                        for box_type, box_content in boxes:
-                            for chunk in self.read_in_chunks(io.BytesIO(box_content)):
-                                output.write(chunk)
-                                processed_size += len(chunk)
-                                if self.progress_callback:
-                                    self.progress_callback(processed_size, total_size_hidden)
+                        # 先写入原始视频数据
+                        output.write(cover_video_data)
+                        processed_size += len(cover_video_data)
+                        if self.progress_callback:
+                            self.progress_callback(processed_size, total_size_hidden)
 
-                        # 随机写入 2 种压缩文件特征码,用来混淆网盘的检测系统
+                        # 在所有原始视频数据写完后，再写入新的 moov box
+                        output.write(new_moov_box)
+                        processed_size += len(new_moov_box)
+                        if self.progress_callback:
+                            self.progress_callback(processed_size, total_size_hidden)
+
+                        # 随机写入 2 种压缩文件特征码，用来混淆网盘的检测系统
                         head_signatures = {
                             "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
                             "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
@@ -734,12 +726,12 @@ class Steganographier:
                         }
 
                         # 添加随机压缩文件特征码
-                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
                         output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
                         output.write(random_bytes)
 
                         output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
-                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
                         output.write(random_bytes)
 
                 except Exception as e:
@@ -822,7 +814,10 @@ class Steganographier:
             # 输出文件名选择
             print(f'output_option: {output_option}')
             if output_option == '原文件名':
-                output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
+                if os.path.isdir(input_file_path):
+                    output_file_path = input_file_path + f"_hidden_{processed_files+1}.mp4" # 当为文件夹时不存在扩展名
+                else:
+                    output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files+1}.mp4"
             elif output_option == '外壳文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                                 os.path.split(cover_video_path)[1].replace('.mp4', f'_{processed_files+1}.mp4')
