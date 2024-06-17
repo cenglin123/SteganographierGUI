@@ -135,7 +135,7 @@ class SteganographierGUI:
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.1.3 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.1.4 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -609,31 +609,6 @@ class Steganographier:
                 if self.progress_callback:
                     self.progress_callback(processed_size, self.total_file_size)
 
-    # def parse_mp4_boxes(self, file):
-    #     boxes = []
-    #     while True:
-    #         header = file.read(8)
-    #         if len(header) < 8:
-    #             break
-    #         size, box_type = struct.unpack(">I4s", header)
-    #         size -= 8
-    #         box_data = file.read(size)
-    #         boxes.append((box_type, header + box_data))
-    #     return boxes
-
-    def construct_new_moov_box_with_zip(self, zip_file_path):
-        # 读取 zip 文件内容
-        with open(zip_file_path, "rb") as zip_file:
-            zip_content = zip_file.read()
-
-        # 创建一个新的 moov box
-        moov_type = b'moov'
-        moov_content = b'udta' + struct.pack(">I", len(zip_content) + 8) + zip_content
-        moov_size = len(moov_content) + 8
-        new_moov_box = struct.pack(">I", moov_size) + moov_type + moov_content
-
-        return new_moov_box
-
     # 隐写方法实现部分
     def hide_file(self, input_file_path, 
                   cover_video_CLI=None, 
@@ -651,17 +626,17 @@ class Steganographier:
         self.password                       = password
         self.video_folder_path              = video_folder_path
 
-        # 1~2. 隐写外壳文件选择
+        # 1. 隐写外壳文件选择
         cover_video_path = self.choose_cover_video_file(cover_video_CLI=cover_video_CLI, 
                                                         processed_files=processed_files, 
                                                         output_cover_video_name_mode=output_cover_video_name_mode,
                                                         video_folder_path=self.video_folder_path)
         print(f"实际隐写外壳文件：{cover_video_path}")
                 
-        # 3. 隐写的临时zip文件名
+        # 2. 隐写的临时zip文件名
         zip_file_path = os.path.join(os.path.splitext(input_file_path)[0] + f"_hidden_{processed_files}.zip")
         
-        # 4. 计算要压缩的文件总大小
+        # 3. 计算要压缩的文件总大小
         self.total_file_size = 0
         if os.path.isdir(input_file_path):
             for root, dirs, files in os.walk(input_file_path):
@@ -674,8 +649,8 @@ class Steganographier:
         processed_size = 0 # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
 
-        try:
-            # 7.1. 隐写MP4文件的逻辑
+        try:        
+            # 4.1. 隐写MP4文件的逻辑
             if type_option == 'mp4':
                 # 指定输出文件名
                 output_file = self.get_output_file_path(input_file_path, 
@@ -686,59 +661,63 @@ class Steganographier:
                                                         cover_video_path)
 
                 self.log(f"Output file: {output_file}")
-
+            
                 try:
                     total_size_hidden = os.path.getsize(cover_video_path) + os.path.getsize(zip_file_path)
                     processed_size = 0
-
                     with open(cover_video_path, "rb") as file1:
-                        self.log(f"Reading cover video: {cover_video_path}")
-                        cover_video_data = file1.read()
+                        with open(zip_file_path, "rb") as file2:
+                            with open(output_file, "wb") as output:
+                                self.log(f"Hiding file: {input_file_path}")
 
-                    # 创建一个新的 moov box 并嵌入 zip 文件
-                    new_moov_box = self.construct_new_moov_box_with_zip(zip_file_path)
+                                # 外壳 MP4 文件
+                                for chunk in self.read_in_chunks(file1):
+                                    output.write(chunk)
+                                    processed_size += len(chunk)
+                                    if self.progress_callback:
+                                        self.progress_callback(processed_size, total_size_hidden)
 
-                    # 写入新的 MP4 文件
-                    with open(output_file, "wb") as output:
-                        self.log(f"Hiding file: {input_file_path}")
+                                # 创建一个新的 moov box 并嵌入 zip 文件
+                                moov_type = b'moov'
+                                moov_content = b'udta'
+                                moov_size = 8
 
-                        # 先写入原始视频数据
-                        output.write(cover_video_data)
-                        processed_size += len(cover_video_data)
-                        if self.progress_callback:
-                            self.progress_callback(processed_size, total_size_hidden)
+                                # 逐块读取 zip 文件内容并写入 moov box
+                                for chunk in self.read_in_chunks(file2):
+                                    moov_content += chunk
+                                    moov_size += len(chunk)
+                                    processed_size += len(chunk)
+                                    if self.progress_callback:
+                                        self.progress_callback(processed_size, total_size_hidden)
 
-                        # 在所有原始视频数据写完后，再写入新的 moov box
-                        output.write(new_moov_box)
-                        processed_size += len(new_moov_box)
-                        if self.progress_callback:
-                            self.progress_callback(processed_size, total_size_hidden)
+                                # 将构建的 moov box 写入文件
+                                output.write(struct.pack(">I", moov_size) + moov_type + moov_content)
 
-                        # 随机写入 2 种压缩文件特征码，用来混淆网盘的检测系统
-                        head_signatures = {
-                            "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
-                            "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
-                            "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
-                            "ZIP":   b'\x50\x4B\x03\x04',
-                            "GZIP":  b'\x1F\x8B',
-                            "BZIP2": b'\x42\x5A\x68',
-                            "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
-                        }
+                                # 随机写入 2 种压缩文件特征码，用来混淆网盘的检测系统
+                                head_signatures = {
+                                    "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
+                                    "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
+                                    "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
+                                    "ZIP":   b'\x50\x4B\x03\x04',
+                                    "GZIP":  b'\x1F\x8B',
+                                    "BZIP2": b'\x42\x5A\x68',
+                                    "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
+                                }
 
-                        # 添加随机压缩文件特征码
-                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
-                        output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
-                        output.write(random_bytes)
+                                # 添加随机压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
+                                output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
+                                output.write(random_bytes)
 
-                        output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
-                        random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
-                        output.write(random_bytes)
-
+                                output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
+                                output.write(random_bytes)
+                
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
                     raise
 
-            # 7.2. 隐写mkv文件的逻辑
+            # 4.2. 隐写mkv文件的逻辑
             elif type_option == 'mkv':
                 # 指定输出文件名
                 output_file = self.get_output_file_path(input_file_path, 
@@ -785,12 +764,12 @@ class Steganographier:
             self.log(f"隐写时发生未预料的错误: {str(e)}")
             raise
         finally:
-            # 8. 删除临时zip文件
+            # 5. 删除临时zip文件
             os.remove(zip_file_path)
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
 
-        # 9. 保存配置文件
+        # 6. 保存配置文件
         self.save_config()
 
     # 隐写时指定输出文件名+路径的方法
@@ -845,23 +824,26 @@ class Steganographier:
     def reveal_file(self, input_file_path, password=None, type_option=None):
 
         self.type_option = type_option
-        
+
         # 解除MP4隐写的逻辑
         if self.type_option == 'mp4':
             try:
                 # 读取文件数据
                 self.log(f"Revealing file: {input_file_path}")
-                with open(input_file_path, "rb") as file:
-                    file_data = file.read()
-
-                # 计算ZIP数据起始位置
-                zip_start_pos = len(file_data) - os.path.getsize(input_file_path)
-                zip_data = file_data[zip_start_pos:]
 
                 # 将ZIP文件写入硬盘
                 zip_path = os.path.splitext(input_file_path)[0] + "_extracted.zip"
-                with open(zip_path, "wb") as file:
-                    file.write(zip_data)
+                total_size = os.path.getsize(input_file_path)
+                zip_start_pos = total_size
+
+                with open(input_file_path, "rb") as file:
+                    with open(zip_path, "wb") as zip_file:
+                        file.seek(-zip_start_pos, os.SEEK_END)
+                        for chunk in self.read_in_chunks(file):
+                            zip_file.write(chunk)
+                            zip_start_pos -= len(chunk)
+                            if zip_start_pos <= 0:
+                                break
 
                 self.log(f"Extracted ZIP file: {zip_path}")
 
@@ -1003,7 +985,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.3 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.4 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
