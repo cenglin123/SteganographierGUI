@@ -4,7 +4,7 @@
 
 ## 更新
 
-### 隐写者 Ver.1.1.3 GUI&CLI两用的MP4/MKV隐写程序
+### 隐写者 Ver.1.1.4 GUI&CLI两用的MP4/MKV隐写程序
 
 作者： 层林尽染
 
@@ -79,6 +79,10 @@
 **Full Changelog**: https://github.com/cenglin123/SteganographierGUI/compare/v1.1.0...v1.1.1
 
 * * *
+
+**v1.1.4 更新**
+
+优化程序在嵌入moov box时的运行逻辑，修正一些bug
 
 **v1.1.3 更新**
 
