@@ -583,7 +583,7 @@ class Steganographier:
         
         # 6.2 压缩zip文件
         with zip_file:
-            self.log(f"Compressing file 6.2: {input_file_path}")
+            self.log(f"Compressing file: {input_file_path}")
             
             # 假如被隐写的文件是一个文件夹
             if os.path.isdir(input_file_path):
@@ -671,27 +671,30 @@ class Steganographier:
                                 self.log(f"Hiding file: {input_file_path}")
 
                                 # 外壳 MP4 文件
+                                self.log(f"Hiding cover video: {file1}")
                                 for chunk in self.read_in_chunks(file1):
                                     output.write(chunk)
                                     processed_size += len(chunk)
                                     if self.progress_callback:
                                         self.progress_callback(processed_size, total_size_hidden)
 
-                                # 创建一个新的 moov box 并嵌入 zip 文件
-                                moov_type = b'moov'
-                                moov_content = b'udta'
-                                moov_size = 8
+                                # 生成 moov box 头部
+                                moov_size = os.path.getsize(zip_file_path) + 8
+                                if moov_size <= 4294967295: # 当zip文件大小小于4GB (2**32-1)，直接嵌入 moov box 中
+                                    moov_header = b'moov' + moov_size.to_bytes(4, byteorder='big')
+                                    output.write(moov_header)
+                                else: # largesize
+                                    moov_header = b'moov' + (1).to_bytes(4, byteorder='big')
+                                    output.write(moov_header)
+                                    output.write(moov_size.to_bytes(8, byteorder='big'))
 
-                                # 逐块读取 zip 文件内容并写入 moov box
+                                # 压缩包 zip 文件
+                                self.log(f"Hiding zip file: {file2}")
                                 for chunk in self.read_in_chunks(file2):
-                                    moov_content += chunk
-                                    moov_size += len(chunk)
+                                    output.write(chunk)
                                     processed_size += len(chunk)
                                     if self.progress_callback:
                                         self.progress_callback(processed_size, total_size_hidden)
-
-                                # 将构建的 moov box 写入文件
-                                output.write(struct.pack(">I", moov_size) + moov_type + moov_content)
 
                                 # 随机写入 2 种压缩文件特征码，用来混淆网盘的检测系统
                                 head_signatures = {
@@ -705,12 +708,12 @@ class Steganographier:
                                 }
 
                                 # 添加随机压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
                                 output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
                                 output.write(random_bytes)
 
                                 output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
                                 output.write(random_bytes)
                 
                 except Exception as e:
