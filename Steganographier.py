@@ -28,6 +28,7 @@ from hachoir.metadata import extractMetadata
 import struct
 from datetime import datetime, timedelta
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 
 
 def generate_random_filename(length=16):
@@ -135,7 +136,7 @@ class SteganographierGUI:
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self.title = "隐写者 Ver.1.1.4 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.1.5 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -178,7 +179,7 @@ class SteganographierGUI:
         
         self.type_option_var = tk.StringVar() # 创建一个变量用于存储下拉菜单的选项
         self.type_option_var.set("mp4")  # 设置文件类型默认值
-        self.type_option_label = tk.Label(params_frame, text="输出类型:")
+        self.type_option_label = tk.Label(params_frame, text="工作模式:")
         self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
         self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv") # 下拉菜单
         self.type_option.config(width=4)  # 设置宽度
@@ -294,7 +295,7 @@ class SteganographierGUI:
     def get_warning_text(self, size, duration_seconds, idx):
         return f'''输入 [{idx+1}] 体积为 {format_size(size)}, 预定外壳 [{idx+1}] 时长: {format_duration(duration_seconds)}
 
-【体积较大但时长较短】的文件容易【引起怀疑】, 建议【分卷压缩】后再进行隐写, 或者选取较长的外壳视频, 本警告程序复位前仅提醒 1 次, 可参照下列建议值检查其他文件是否存在问题. 
+【体积较大但时长较短】的文件容易【引起怀疑】, 建议【分卷压缩】后再进行隐写, 或者选取较长的外壳视频, 本警告程序重启前仅提醒 1 次, 可参照下列建议值检查其他文件是否存在问题. 
 
 建议值：
 文件大小		外壳视频时长
@@ -461,7 +462,7 @@ class SteganographierGUI:
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全，请勿用于任何违法犯罪活动--\n--否则后果自负，开发者对此不承担任何责任--\nConsole output goes here...\n\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
-        self.check_file_size_and_duration_warned = False
+        # self.check_file_size_and_duration_warned = False
 
 
     
@@ -581,44 +582,64 @@ class Steganographier:
             # 不使用加密
             zip_file = pyzipper.ZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED)
         
-        # 6.2 压缩zip文件
+        lock = threading.Lock()  # 创建一个锁对象
+
+        def compress_single_file(file_full_path, arcname):
+            nonlocal processed_size
+            with open(file_full_path, 'rb') as file:
+                with lock:  # 在写入时锁定
+                    with zip_file.open(arcname, 'w') as dest_file:
+                        for chunk in self.read_in_chunks(file, chunk_size=1024 * 1024):  # 增大块大小
+                            dest_file.write(chunk)
+                            processed_size += len(chunk)
+                            if self.progress_callback:
+                                self.progress_callback(processed_size, self.total_file_size)  # 更新进度条
+
+        def compress_files_chunk(files_chunk):
+            for file_full_path, arcname in files_chunk:
+                compress_single_file(file_full_path, arcname)
+
         with zip_file:
-            self.log(f"Compressing file: {input_file_path}")
-            
             # 假如被隐写的文件是一个文件夹
             if os.path.isdir(input_file_path):
+                self.log(f"Compressing directory: {input_file_path}")
                 # 定义总的顶层文件夹名为原文件夹的名字
                 root_folder = os.path.basename(input_file_path)
-                # 然后隐写其下所有文件
+                # 收集所有需要处理的文件及其相对路径
+                files_to_compress = []
                 for root, dirs, files in os.walk(input_file_path):
                     for file in files:
                         file_full_path = os.path.join(root, file)
-                        # 在原有的相对路径前加上顶层文件夹名
                         arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
-                        zip_file.write(file_full_path, arcname)
-                        
-                        # 更新已处理的大小并更新进度条
-                        processed_size += os.path.getsize(file_full_path)
-                        if self.progress_callback:
-                            self.progress_callback(processed_size, self.total_file_size) # 此处使用的进度条函数来自GUI传入的回调函数
+                        files_to_compress.append((file_full_path, arcname))
+
+                # 将文件分配给不同的线程
+                num_threads = 2
+                files_chunks = [files_to_compress[i::num_threads] for i in range(num_threads)]
+                
+                # 使用多线程处理文件
+                with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                    futures = []
+                    for files_chunk in files_chunks:
+                        futures.append(executor.submit(compress_files_chunk, files_chunk))
+                    for future in futures:
+                        future.result()
             else:
                 # 否则只隐写该文件
-                zip_file.write(input_file_path, os.path.basename(input_file_path))
-                # 更新已处理的大小并更新进度条
-                processed_size = os.path.getsize(input_file_path)
-                if self.progress_callback:
-                    self.progress_callback(processed_size, self.total_file_size)
+                self.log(f"Compressing file: {input_file_path}")
+                arcname = os.path.basename(input_file_path)
+                compress_single_file(input_file_path, arcname)
 
     # 隐写方法实现部分
     def hide_file(self, input_file_path, 
-                  cover_video_CLI=None, 
-                  password=None, 
-                  processed_files=0, 
-                  output_file_path=None, 
-                  output_option=None, 
-                  output_cover_video_name_mode=None,
-                  type_option=None,
-                  video_folder_path=None):
+                cover_video_CLI=None, 
+                password=None, 
+                processed_files=0, 
+                output_file_path=None, 
+                output_option=None, 
+                output_cover_video_name_mode=None,
+                type_option=None,
+                video_folder_path=None):
 
         self.type_option                    = type_option
         self.output_option                  = output_option
@@ -648,7 +669,7 @@ class Steganographier:
             
         processed_size = 0 # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
-
+        
         try:        
             # 4.1. 隐写MP4文件的逻辑
             if type_option == 'mp4':
@@ -988,7 +1009,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.4 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.5 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
