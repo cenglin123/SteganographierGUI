@@ -103,32 +103,7 @@
 
 **v1.1.0 版本进位**
 
-新增命令行调用的 CLI 模式，模式命令如下：
-```
-(hide) C:\Users\xxxx\>python Steganographier.py -h
-usage: Steganographier.py [-h] [-i INPUT] [-o OUTPUT] [-p PASSWORD] [-t {mp4,mkv}] [-c COVER] [-r]
-
-隐写者 Ver.1.1.0 CLI 作者: 层林尽染
-
-options:
-  -h, --help            show this help message and exit
-  -i INPUT, --input INPUT
-                        输入文件/文件夹路径
-  -o OUTPUT, --output OUTPUT
-                        输出隐写文件的包含后缀名在内的相对路径或绝对路径
-  -p PASSWORD, --password PASSWORD
-                        设置密码
-  -t {mp4,mkv}, --type {mp4,mkv}
-                        设置输出文件类型
-  -c COVER, --cover COVER
-                        设置外壳MP4视频路径
-  -r, --reveal          执行解除隐写
-```
-用法举例：
-```
-(hide) C:\Users\xxxx>隐写者.exe -i D:\测试\异界之美少女大召唤 -o output.mp4 -t mp4 -c D:\测试\123.mp4
-```
-
+新增命令行调用的 CLI 模式, 现在程序可以作为第三方工具被其他程序调用
 
 **v1.0.10 改进：**
 ```
