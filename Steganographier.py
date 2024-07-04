@@ -142,7 +142,7 @@ class SteganographierGUI:
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
         self._7zip_exe      = os.path.join(application_path,'tools','7z.exe')
-        self.title = "隐写者 Ver.1.1.5 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.1.6 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -855,59 +855,44 @@ class Steganographier:
     
     # 解除隐写的方法
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
-
         self.type_option_var = type_option_var
 
-        # 解除MP4隐写的逻辑
         if self.type_option_var == 'mp4':
             try:
-                # 读取文件数据
                 self.log(f"Revealing file: {input_file_path}")
 
-                # 将ZIP文件写入硬盘
-                zip_path = os.path.splitext(input_file_path)[0] + "_extracted.zip"
-                total_size = os.path.getsize(input_file_path)
-                zip_start_pos = total_size
+                total_size_hidden = os.path.getsize(input_file_path)
+                processed_size = 0
 
-                with open(input_file_path, "rb") as file:
-                    with open(zip_path, "wb") as zip_file:
-                        file.seek(-zip_start_pos, os.SEEK_END)
-                        for chunk in self.read_in_chunks(file):
-                            zip_file.write(chunk)
-                            zip_start_pos -= len(chunk)
-                            if zip_start_pos <= 0:
-                                break
+                with open(input_file_path, "rb") as file1:
+                    if password:
+                        with pyzipper.AESZipFile(file1) as zip_file:
+                            zip_file.setpassword(password.encode())
+                            for name in zip_file.namelist():
+                                output_file_path = os.path.join(os.path.dirname(input_file_path), name)
+                                with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                                    for chunk in self.read_in_chunks(source):
+                                        output.write(chunk)
+                                        processed_size += len(chunk)
+                                        if self.progress_callback:
+                                            self.progress_callback(processed_size, total_size_hidden)
+                    else:
+                        with pyzipper.ZipFile(file1, 'r') as zip_file:
+                            for name in zip_file.namelist():
+                                output_file_path = os.path.join(os.path.dirname(input_file_path), name)
+                                with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                                    for chunk in self.read_in_chunks(source):
+                                        output.write(chunk)
+                                        processed_size += len(chunk)
+                                        if self.progress_callback:
+                                            self.progress_callback(processed_size, total_size_hidden)
 
-                self.log(f"Extracted ZIP file: {zip_path}")
-
-                # 根据是否有密码选择解压方式
-                if password:
-                    # 使用密码解压ZIP文件
-                    with pyzipper.AESZipFile(zip_path) as zip_file:
-                        zip_file.setpassword(password.encode())
-                        zip_file.extractall(os.path.dirname(zip_path))
-                else:
-                    # 无密码解压ZIP文件
-                    with pyzipper.ZipFile(zip_path, 'r') as zip_file:
-                        zip_file.extractall(os.path.dirname(zip_path))
-
-                # 删除ZIP文件
-                os.remove(zip_path)
-
-                # 删除隐写MP4文件
                 os.remove(input_file_path)
 
-                self.log(f"File extracted successfully: {not os.path.exists(zip_path)}")
-
+                self.log(f"File extracted successfully")
             except (pyzipper.BadZipFile, ValueError) as e:
-                # 处理ZIP文件损坏或密码错误的情况
-                if os.path.exists(zip_path):
-                    os.remove(zip_path)
                 self.log(f"无法解压文件 {input_file_path}, 可能是密码错误或文件损坏: {str(e)}")
             except Exception as e:
-                # 处理其他异常
-                if os.path.exists(zip_path):
-                    os.remove(zip_path)
                 self.log(f"解压时发生错误: {str(e)}")
         
         # 解除mkv文件隐写的逻辑
@@ -1018,7 +1003,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.5 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.6 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
