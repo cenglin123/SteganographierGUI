@@ -7,6 +7,7 @@ Created on Mon Apr 22 14:56:41 2024
 pip install tkinterdnd2
 pip install pyzipper
 pip install hachoir
+pip install natsort
 
 @author: Cr
 """
@@ -26,7 +27,7 @@ import subprocess
 import string
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
-import struct
+from natsort import ns, natsorted # windows风格的按名称排序专用包
 # from datetime import datetime, timedelta
 import argparse
 # from concurrent.futures import ThreadPoolExecutor
@@ -84,7 +85,11 @@ def get_cover_video_files_info(folder_path, sort_by_duration=False):
                 "duration_seconds": duration_seconds or 0,  # 时长未知则为0
                 "size": format_size(size)
             })
-    # 按总时长降序排列
+    
+    # 先按Windows显示风格排序
+    videos = list(natsorted(videos, key=lambda x: x['filename'], alg=ns.PATH)) 
+    
+    # 如果需要，再按总时长降序排列
     if sort_by_duration:
         videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
     
@@ -568,6 +573,7 @@ class Steganographier:
         # 外壳文件选择：GUI模式
         # 1. 检查cover_video中是否存在用来作为外壳的MP4文件（比如海绵宝宝之类, 数量任意, 每次随机选择）
         cover_video_files = [f for f in os.listdir(video_folder_path) if f.endswith(".mp4")]  # 按默认排序选择
+        cover_video_files = natsorted(cover_video_files, alg=ns.PATH)
         if not cover_video_files:
             raise Exception(f"{video_folder_path} 文件夹下没有文件, 请添加文件后继续.")
 
