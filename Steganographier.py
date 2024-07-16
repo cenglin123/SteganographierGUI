@@ -16,6 +16,7 @@ import os
 import io
 import re
 import sys
+import signal
 # import shutil
 import random
 import tkinter as tk
@@ -142,17 +143,25 @@ class SteganographierGUI:
         self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
         self.steganographier.set_log_callback(self.log)     # log回调函数
 
-        self.output_option  = '原文件名'                                          # 设置输出模式的默认值
-        self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
-        self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
-        self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self._7zip_exe      = os.path.join(application_path,'tools','7z.exe')
-        self.title = "隐写者 Ver.1.1.6 GUI 作者: 层林尽染"
+        self.output_option          = '原文件名'                                             # 设置输出模式的默认值
+        self.mkvmerge_exe           = os.path.join(application_path,'tools','mkvmerge.exe')
+        self.mkvextract_exe         = os.path.join(application_path,'tools','mkvextract.exe')
+        self.mkvinfo_exe            = os.path.join(application_path,'tools','mkvinfo.exe')
+        self._7zip_exe              = os.path.join(application_path,'tools','7z.exe')
+        self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
+        self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
+        self.title = "隐写者 Ver.1.1.8 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
         self.check_file_size_and_duration_warned = False # 追踪是否警告过文件大小-外壳时长匹配问题
         self.cover_video_options = []         # 外壳MP4文件列表
+        self.root = TkinterDnD.Tk()
+        self.hash_modifier_process = None
+        self.hash_modifier_thread = None
+        self.captcha_generator_process = None
+        self.captcha_generator_thread = None
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.create_widgets()           # GUI实现部分
 
     # 1. 窗口控件初始化方法
@@ -169,7 +178,6 @@ class SteganographierGUI:
             else:
                 self.password_modified = True
 
-        self.root = TkinterDnD.Tk()
         self.root.title(self.title)
         try:
             self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
@@ -257,21 +265,42 @@ class SteganographierGUI:
                                                 '===============名称顺序模式===============')
         self.video_option_menu.pack()
         
-        # 1.4 log文本框
-        self.log_text = tk.Text(self.root, width=65, height=10, state=tk.NORMAL)
+        # 1.4 log文本框和滚动条
+        log_frame = tk.Frame(self.root)
+        log_frame.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)  # 调整布局管理器为 pack，支持扩展
+
+        log_scrollbar_y = tk.Scrollbar(log_frame)
+        log_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)  # 垂直滚动条设置为填充Y方向
+
+        log_scrollbar_x = tk.Scrollbar(log_frame, orient=tk.HORIZONTAL)
+        log_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)  # 水平滚动条设置为填充X方向
+
+        self.log_text = tk.Text(log_frame, wrap=tk.NONE, 
+                                yscrollcommand=log_scrollbar_y.set,
+                                xscrollcommand=log_scrollbar_x.set, 
+                                width=65, height=10, state=tk.NORMAL)
         self.log_text.insert(tk.END, "【免责声明】:\n--本程序仅用于保护个人信息安全, 请勿用于任何违法犯罪活动--\n--否则后果自负, 开发者对此不承担任何责任--\nConsole output goes here...\n\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
-        self.log_text.pack()
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)  # 文本框设置为填充BOTH方向，并支持扩展
+
+        log_scrollbar_y.config(command=self.log_text.yview)  # 设置垂直滚动条与文本框的联动
+        log_scrollbar_x.config(command=self.log_text.xview)  # 设置水平滚动条与文本框的联动
         
         # 1.5 控制按钮部分
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=10)
         
-        self.start_button = tk.Button(button_frame, text="开始执行", command=self.start_thread, width=10, height=2)
+        self.start_button = tk.Button(button_frame, text="开始执行", command=self.start_thread, width=12, height=2)
         self.start_button.pack(side=tk.LEFT, padx=5)
         
-        self.clear_button = tk.Button(button_frame, text="程序复位", command=self.clear, width=10, height=2)
+        self.clear_button = tk.Button(button_frame, text="清除窗口", command=self.clear, width=12, height=2)
         self.clear_button.pack(side=tk.LEFT, padx=5)
+
+        self.start_hash_modifier_button = tk.Button(button_frame, text="哈希修改器", command=self.start_hash_modifier, width=12, height=2)
+        self.start_hash_modifier_button.pack(side=tk.LEFT, padx=5)
+        
+        self.start_captcha_generator_button = tk.Button(button_frame, text="验证码生成器", command=self.start_captcha_generator, width=12, height=2)
+        self.start_captcha_generator_button.pack(side=tk.LEFT, padx=5)
         
         # 1.6 进度条
         self.progress = ttk.Progressbar(self.root, length=500, mode='determinate')
@@ -497,8 +526,66 @@ class SteganographierGUI:
         self.log_text.configure(state=tk.DISABLED, fg="grey")
         # self.check_file_size_and_duration_warned = False # 禁用此则程序重启前大小检测只提醒一次, 启用后每次程序复位都会恢复它
 
+    def start_hash_modifier(self):
+        self.start_hash_modifier_button.config(state=tk.DISABLED)
 
-    
+        def run_and_wait():
+            try:
+                # 使用 subprocess.DETACHED_PROCESS 标志启动进程
+                self.hash_modifier_process = subprocess.Popen(
+                    [self.hash_modifier_exe],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+                self.hash_modifier_process.wait()
+            finally:
+                self.start_hash_modifier_button.config(state=tk.NORMAL)
+                self.hash_modifier_process = None
+                self.hash_modifier_thread = None
+
+        self.hash_modifier_thread = threading.Thread(target=run_and_wait)
+        self.hash_modifier_thread.start()
+
+    def start_captcha_generator(self):
+        self.start_captcha_generator_button.config(state=tk.DISABLED)
+
+        def run_and_wait():
+            try:
+                # 使用 subprocess.DETACHED_PROCESS 标志启动进程
+                self.captcha_generator_process = subprocess.Popen(
+                    [self.captcha_generator_exe],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+                self.captcha_generator_process.wait()
+            finally:
+                self.start_captcha_generator_button.config(state=tk.NORMAL)
+                self.captcha_generator_process = None
+                self.captcha_generator_thread = None
+
+        self.captcha_generator_thread = threading.Thread(target=run_and_wait)
+        self.captcha_generator_thread.start()
+
+    def on_closing(self):
+        # 程序退出时关闭已打开的 hash_generator
+        if self.hash_modifier_process:
+            # 使用 taskkill 命令强制结束进程树
+            subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.hash_modifier_process.pid)])
+        
+        if self.hash_modifier_thread and self.hash_modifier_thread.is_alive():
+            self.hash_modifier_thread.join(timeout=1)
+        
+        # 程序退出时关闭已打开的 captcha_generator
+        if self.captcha_generator_process:
+            # 使用 taskkill 命令强制结束进程树
+            subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.captcha_generator_process.pid)])
+        
+        if self.captcha_generator_thread and self.captcha_generator_thread.is_alive():
+            self.captcha_generator_thread.join(timeout=1)
+
+        self.root.destroy()
+        # 强制结束整个 Python 进程
+        os._exit(0)
+
+
 
 
 
@@ -876,6 +963,9 @@ class Steganographier:
                             zip_file.setpassword(password.encode())
                             for name in zip_file.namelist():
                                 output_file_path = os.path.join(os.path.dirname(input_file_path), name)
+                                # 创建必要的目录
+                                self.log(f"Attempting to create file: {output_file_path}")
+                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
                                 with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
                                     for chunk in self.read_in_chunks(source):
                                         output.write(chunk)
@@ -886,6 +976,9 @@ class Steganographier:
                         with pyzipper.ZipFile(file1, 'r') as zip_file:
                             for name in zip_file.namelist():
                                 output_file_path = os.path.join(os.path.dirname(input_file_path), name)
+                                # 创建必要的目录
+                                self.log(f"Attempting to create file: {output_file_path}")
+                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
                                 with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
                                     for chunk in self.read_in_chunks(source):
                                         output.write(chunk)
@@ -1009,7 +1102,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.6 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.8 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
