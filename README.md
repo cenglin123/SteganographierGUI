@@ -14,7 +14,7 @@
 
 本程序可以将文件或文件夹隐写到视频文件中，或从视频文件中提取隐写的文件或文件夹。程序支持命令行界面 (CLI) 和图形用户界面 (GUI) 两种模式。
 
-1. **GUI** 模式： 直接运行程序，不带任何参数。关于GUI的用法详见[演示视频](https://youtu.be/ztjKF8FPIM0?si=rI4QANcmoU2cQEHn)。
+1. **GUI** 模式： 【推荐】双击直接运行程序，不带任何参数。关于GUI的用法详见[演示视频](https://youtu.be/ztjKF8FPIM0?si=rI4QANcmoU2cQEHn)。
 
 2. **CLI** 模式： 使用以下参数运行程序：
 
