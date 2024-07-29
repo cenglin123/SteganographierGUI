@@ -825,13 +825,18 @@ class Steganographier:
                                 }
 
                                 # 添加随机压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
                                 output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
                                 output.write(random_bytes)
 
                                 output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 10KB - 25KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(20, 22))  # 20KB - 22KB 的随机字节
                                 output.write(random_bytes)
+
+                                # 添加 MP4 文件的结尾标记 (空的 "free" box)
+                                free_box_size = 8  # 最小的 box 大小
+                                free_box = free_box_size.to_bytes(4, byteorder='big') + b'free'
+                                output.write(free_box)
                 
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
