@@ -134,6 +134,11 @@ def check_size_and_duration(size, duration_seconds):
         return False
     return True
 
+def add_empty_mdat_box(file):
+    mdat_size = 8  # Minimum box size
+    mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
+    file.write(mdat_box)
+
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
     def __init__(self):
@@ -147,10 +152,10 @@ class SteganographierGUI:
         self.mkvmerge_exe           = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe         = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe            = os.path.join(application_path,'tools','mkvinfo.exe')
-        self._7zip_exe              = os.path.join(application_path,'tools','7z.exe')
+        self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.1.8 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.2.1 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -415,7 +420,7 @@ class SteganographierGUI:
     # 检查7zip工具是否缺失
     def check_7zip_existence(self):
         missing_tools = []
-        for tool in [self._7zip_exe]:
+        for tool in [self._7z_exe]:
             if not os.path.exists(tool):
                 missing_tools.append(os.path.basename(tool))
 
@@ -596,11 +601,13 @@ class SteganographierGUI:
 
 class Steganographier:
     '''隐写的具体功能由此类实现'''
-    def __init__(self, video_folder_path=None, gui_enabled=False):
+    def __init__(self, video_folder_path=None, gui_enabled=False, password_file=None):
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
-        self._7zip_exe      = os.path.join(application_path,'tools','7z.exe')
+        self._7z_exe        = os.path.join(application_path,'tools','7z.exe')
+        self.password_file  = password_file or os.path.join(application_path,'modules',"PW.txt")
+        self.passwords = self.load_passwords()
         if video_folder_path:
             self.video_folder_path = video_folder_path
         else:
@@ -825,18 +832,16 @@ class Steganographier:
                                 }
 
                                 # 添加随机压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 25))  # 20KB - 25KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(5, 10))  # 20KB - 25KB 的随机字节
                                 output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
                                 output.write(random_bytes)
 
                                 output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
-                                random_bytes = os.urandom(1024 * random.randint(20, 22))  # 20KB - 22KB 的随机字节
+                                random_bytes = os.urandom(1024 * random.randint(5, 10))  # 20KB - 22KB 的随机字节
                                 output.write(random_bytes)
 
-                                # 添加 MP4 文件的结尾标记 (空的 "free" box)
-                                free_box_size = 8  # 最小的 box 大小
-                                free_box = free_box_size.to_bytes(4, byteorder='big') + b'free'
-                                output.write(free_box)
+                                # 添加 MP4 文件的结尾标记 (空的 "mdat" box)
+                                add_empty_mdat_box(output)
                 
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
@@ -951,37 +956,46 @@ class Steganographier:
         
         return output_file_path    
     
-    # 解除隐写的方法
+    # 解除隐写部分
+
+    ## 读取密码本
+    def load_passwords(self):
+        passwords = []
+        if os.path.exists(self.password_file):
+            with open(self.password_file, 'r', encoding='utf-8-sig') as f:
+                for line in f:
+                    parts = line.strip().split('\t')
+                    if parts:
+                        # 移除可能的 BOM 和其他不可打印字符
+                        password = parts[0].strip().encode('ascii', 'ignore').decode('ascii')
+                        if password:
+                            passwords.append(password)
+        return passwords
+    
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
         self.type_option_var = type_option_var
 
+        # 添加调试信息
+        self.log(f"Loaded passwords: {self.passwords}")
+        self.log(f"User provided password: {password}")
+
+        password_list = [password] if password else []
+        password_list.extend(self.passwords)
+
         if self.type_option_var == 'mp4':
-            try:
-                self.log(f"Revealing file: {input_file_path}")
+            for test_password in password_list:
+                try:
+                    # 添加更多详细的调试信息
+                    self.log(f"Attempting to reveal file with password: '{test_password}' (len: {len(test_password)})")
 
-                total_size_hidden = os.path.getsize(input_file_path)
-                processed_size = 0
+                    total_size_hidden = os.path.getsize(input_file_path)
+                    processed_size = 0
 
-                with open(input_file_path, "rb") as file1:
-                    if password:
+                    with open(input_file_path, "rb") as file1:
                         with pyzipper.AESZipFile(file1) as zip_file:
-                            zip_file.setpassword(password.encode())
+                            zip_file.setpassword(test_password.encode())
                             for name in zip_file.namelist():
                                 output_file_path = os.path.join(os.path.dirname(input_file_path), name)
-                                # 创建必要的目录
-                                self.log(f"Attempting to create file: {output_file_path}")
-                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
-                                    for chunk in self.read_in_chunks(source):
-                                        output.write(chunk)
-                                        processed_size += len(chunk)
-                                        if self.progress_callback:
-                                            self.progress_callback(processed_size, total_size_hidden)
-                    else:
-                        with pyzipper.ZipFile(file1, 'r') as zip_file:
-                            for name in zip_file.namelist():
-                                output_file_path = os.path.join(os.path.dirname(input_file_path), name)
-                                # 创建必要的目录
                                 self.log(f"Attempting to create file: {output_file_path}")
                                 os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
                                 with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
@@ -991,15 +1005,15 @@ class Steganographier:
                                         if self.progress_callback:
                                             self.progress_callback(processed_size, total_size_hidden)
 
-                os.remove(input_file_path)
+                    os.remove(input_file_path)
+                    self.log(f"File extracted successfully with password: {test_password}")
+                    return  # 成功解压后退出函数
 
-                self.log(f"File extracted successfully")
-            except (pyzipper.BadZipFile, ValueError) as e:
-                self.log(f"无法解压文件 {input_file_path}, 可能是密码错误或文件损坏: {str(e)}")
-            except Exception as e:
-                self.log(f"解压时发生错误: {str(e)}")
-        
-        # 解除mkv文件隐写的逻辑
+                except (pyzipper.BadZipFile, ValueError, RuntimeError) as e:
+                    self.log(f"无法解压文件 {input_file_path}, 使用密码 {test_password} 失败: {str(e)}")
+
+            self.log("所有密码尝试失败，无法解压文件。")
+
         elif self.type_option_var == 'mkv':
             # 获取mkv附件id函数
             def get_attachment_name(input_file_path):
@@ -1010,56 +1024,53 @@ class Steganographier:
                     for idx, line in enumerate(lines):
                         if "MIME" in line:
                             parts = lines[idx-1].split(':')
-                            attachments_name = parts[1].strip().split()[-1] # 附件的实际名称
-                            break                                           # 只要第一个附件
+                            attachments_name = parts[1].strip().split()[-1]
+                            break
                 except Exception as e:
                     self.log(f"获取附件时出错: {e}")
-                
+                    return None
                 return attachments_name
-            
+
             # 提取mkv附件
             def extract_attachment(input_file_path, output_path):
-                cmd = [
-                    self.mkvextract_exe, 'attachments',
-                    input_file_path,
-                    f'1:{output_path}'
-                ]
+                cmd = [self.mkvextract_exe, 'attachments', input_file_path, f'1:{output_path}']
                 try:
                     subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError as e:
-                    raise Exception(f"提取附件时出错: {e}")   
-                    
-            # 获取附件文件名
+                    raise Exception(f"提取附件时出错: {e}")
+
             attachments_name = get_attachment_name(input_file_path)
             if attachments_name:
                 output_path = os.path.join(os.path.dirname(input_file_path), attachments_name)
                 self.log(f"Mkvextracting attachment file: {output_path}")
-                # 提取附件
                 try:
                     extract_attachment(input_file_path, output_path)
 
-                    # 使用密码解压ZIP文件
                     if attachments_name.endswith('.zip'):
-                        try:
-                            zip_path = output_path
-                            self.log(f"Extracting ZIP file: {zip_path}")
-                            with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
-                                zip_file.extractall(os.path.dirname(input_file_path), pwd=password.encode())
-                            
-                            # 解压后删除ZIP文件
-                            os.remove(zip_path)
-                    
-                        except RuntimeError as e:
-                            # 这里处理密码错误的情况
-                            self.log(f"解压失败, 错误信息: {e}")
+                        zip_path = output_path
+                        self.log(f"Extracting ZIP file: {zip_path}")
 
-                    # 解压后删除隐写MP4文件
-                    os.remove(input_file_path)
-                    
-                    self.log(f"提取附件 {attachments_name} 成功")
-                except subprocess.CalledProcessError as e:
+                        for test_password in password_list:
+                            try:
+                                with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
+                                    zip_file.extractall(os.path.dirname(input_file_path), pwd=test_password.encode())
+                                
+                                os.remove(zip_path)
+                                os.remove(input_file_path)
+                                self.log(f"File extracted successfully with password: {test_password}")
+                                return  # 成功解压后退出函数
+
+                            except RuntimeError as e:
+                                self.log(f"使用密码 {test_password} 解压失败: {e}")
+
+                        self.log("所有密码尝试失败，无法解压文件。")
+
+                    else:
+                        self.log(f"提取附件 {attachments_name} 成功")
+                        os.remove(input_file_path)
+
+                except Exception as e:
                     self.log(f"提取附件 {attachments_name} 时出错: {e}")
-
             else:
                 self.log("该 MKV 文件中没有可提取的附件。")
 
@@ -1094,7 +1105,6 @@ class Steganographier:
                              type_option_var=self.type_option_var)  # 调用reveal_file方法
 
 if __name__ == "__main__":
-
     # 修正CLI模式的编码问题
     if sys.stdout is not None:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -1107,17 +1117,18 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.1.8 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.2.1 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
     parser.add_argument('-t', '--type', default='mp4', choices=['mp4', 'mkv'], help='设置输出文件类型 (默认为mp4)')
     parser.add_argument('-c', '--cover', default=None, help='指定外壳MP4视频（默认在程序同路径下搜索）')
     parser.add_argument('-r', '--reveal', action='store_true', help='执行解除隐写')
+    parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
 
     args, unknown = parser.parse_known_args()
 
-    if unknown: # 假如没有指定参数标签, 那么默认第一个传入为 -i 参数
+    if unknown:  # 假如没有指定参数标签, 那么默认第一个传入为 -i 参数
         args.input = unknown[0]
 
     if args.input:
@@ -1150,7 +1161,7 @@ if __name__ == "__main__":
             
             # 2.3 假如以上都没找到,那么就在输入文件/目录所在目录下寻找
             if not mp4list:
-                input_dir = os.path.dirname(os.path.abspath(args.input)) # 获取输入文件/文件夹的父目录
+                input_dir = os.path.dirname(os.path.abspath(args.input))  # 获取输入文件/文件夹的父目录
                 mp4list += [os.path.join(input_dir, item) for item in os.listdir(input_dir) if item.endswith('.mp4')]  # 输入文件/目录所在目录
 
             if mp4list:
@@ -1159,9 +1170,12 @@ if __name__ == "__main__":
                 print('请指定外壳MP4文件')
                 exit(1)  # 退出程序
 
-        steganographier = Steganographier()
+        # 3. 处理密码文件
+        if args.password_file is None:
+            args.password_file = os.path.join(application_path,"modules", "PW.txt")
+        
+        steganographier = Steganographier(password_file=args.password_file)
         steganographier.run_cli(args)
-
     else:
-        print('GUI') 
+        print('GUI')
         SteganographierGUI()
