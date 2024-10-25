@@ -224,7 +224,7 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 [collapse title = "解除隐写方法（根据自己所用的解压软件对号入座）" show = "true" ]
 
-**1.** [WinRAR6](https://pan.baidu.com/s/1Q1qO2eEYF_o22zLulUvUCA?pwd=p8qg) **（注意不能是 WinRAR5）：**
+**1.** [WinRAR6](https://pan.baidu.com/s/1J8_amt4s_cIubbOnyE-LJw?pwd=1s25) **（注意不能是 WinRAR5）：**
 
     1.1. 对于 MP4 隐写文件，直接改后缀名为 **.zip** 即可解压（必须是 **zip**，不是 rar 也不是 7z 或者别的）
 
