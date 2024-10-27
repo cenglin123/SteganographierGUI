@@ -17,24 +17,23 @@ import io
 import re
 import sys
 import signal
-# import shutil
+import json
 import random
+import datetime
 import tkinter as tk
 from tkinter import  messagebox, ttk, filedialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import pyzipper
+import zipfile
 import threading
 import subprocess
 import string
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
 from natsort import ns, natsorted # windows风格的按名称排序专用包
-# from datetime import datetime, timedelta
+import time
 import argparse
-# from concurrent.futures import ThreadPoolExecutor
-# from tqdm import tqdm
-# import time
-# import logging
+import hashlib
 
 
 def generate_random_filename(length=16):
@@ -70,33 +69,39 @@ def get_video_duration(filepath):
             parser.stream._input.close()
 
 def get_cover_video_files_info(folder_path, sort_by_duration=False):
-    videos = []
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".mp4"):
-            filepath = os.path.join(folder_path, filename)
-            duration_seconds = get_video_duration(filepath)
-            if duration_seconds is None:
-                formatted_duration = "Unknown"
-            else:
-                formatted_duration = format_duration(duration_seconds)
-            size = get_file_or_folder_size(filepath)  # 获取文件/文件夹大小
-            videos.append({
-                "filename": filename,
-                "duration": formatted_duration,
-                "duration_seconds": duration_seconds or 0,  # 时长未知则为0
-                "size": format_size(size)
-            })
+    try:
+        videos = []
+        for filename in os.listdir(folder_path):
+            if filename.endswith(".mp4"):
+                filepath = os.path.join(folder_path, filename)
+                duration_seconds = get_video_duration(filepath)
+                if duration_seconds is None:
+                    formatted_duration = "Unknown"
+                else:
+                    formatted_duration = format_duration(duration_seconds)
+                size = get_file_or_folder_size(filepath)  # 获取文件/文件夹大小
+                videos.append({
+                    "filename": filename,
+                    "duration": formatted_duration,
+                    "duration_seconds": duration_seconds or 0,  # 时长未知则为0
+                    "size": format_size(size)
+                })
+
+        # 先按Windows显示风格排序
+        videos = list(natsorted(videos, key=lambda x: x['filename'], alg=ns.PATH)) 
+        
+        # 如果需要，再按总时长降序排列
+        if sort_by_duration:
+            videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
+        
+        # 格式化显示
+        formatted_videos = [f"{video['filename']} - {video['duration']} - {video['size']}" for video in videos]
+        return formatted_videos
     
-    # 先按Windows显示风格排序
-    videos = list(natsorted(videos, key=lambda x: x['filename'], alg=ns.PATH)) 
-    
-    # 如果需要，再按总时长降序排列
-    if sort_by_duration:
-        videos.sort(key=lambda x: x['duration_seconds'], reverse=True)
-    
-    # 格式化显示
-    formatted_videos = [f"{video['filename']} - {video['duration']} - {video['size']}" for video in videos]
-    return formatted_videos
+    except Exception as e:
+        # 如果出现任何错误，返回空列表并可以打印错误信息进行调试
+        print(f"An error occurred: {e}")
+        return []
 
 def get_file_or_folder_size(path):
     total_size = 0
@@ -142,39 +147,64 @@ def add_empty_mdat_box(file):
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
     def __init__(self):
+        self.root = TkinterDnD.Tk()
         self.video_folder_path = os.path.join(application_path, "cover_video")  # 定义实例变量 默认外壳MP4文件存储路径
-        self.steganographier = Steganographier(self.video_folder_path, gui_enabled=True)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
-        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层, 从而把逻辑层的进度传回GUI
-        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
-        self.steganographier.set_log_callback(self.log)     # log回调函数
-
-        self.output_option          = '原文件名'                                             # 设置输出模式的默认值
+        self.output_option          = "外壳文件名"  # 设置输出模式的默认值
+        self.type_option_var = tk.StringVar(value="mp4")
+        self.output_cover_video_name_mode_var = tk.StringVar(value="")
         self.mkvmerge_exe           = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe         = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe            = os.path.join(application_path,'tools','mkvinfo.exe')
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.2.1 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.2.5 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
         self.check_file_size_and_duration_warned = False # 追踪是否警告过文件大小-外壳时长匹配问题
         self.cover_video_options = []         # 外壳MP4文件列表
-        self.root = TkinterDnD.Tk()
+        
         self.hash_modifier_process = None
         self.hash_modifier_thread = None
         self.captcha_generator_process = None
         self.captcha_generator_thread = None
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.config_file = os.path.join(application_path, "config.json") # 设置配置文件路径
+        self.load_config()  # 程序启动时加载配置文件
+        print(f"Loaded password from config: '{self.password}'")  # Debug output
+
+        self.steganographier = Steganographier(self.video_folder_path, gui_enabled=True)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
+        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层, 从而把逻辑层的进度传回GUI
+        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
+        self.steganographier.set_log_callback(self.log)     # log回调函数
+
         self.create_widgets()           # GUI实现部分
 
     # 1. 窗口控件初始化方法
     def create_widgets(self):
+        # 1.1 参数设定部分
+        params_frame = tk.Frame(self.root)
+        params_frame.pack(pady=5)
+
+        self.root.title(self.title)
+        try:
+            self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
+        except tk.TclError:
+            print("无法找到图标文件, 继续运行程序...")
+
+        # 密码输入框
+        self.password_label = tk.Label(params_frame, text="密码:")
+        self.password_label.pack(side=tk.LEFT, padx=5)
+        self.password_entry = tk.Entry(params_frame, width=13, fg="grey")
+        
         def clear_default_password(event):
             if self.password_entry.get() == "留空则无密码":
                 self.password_entry.delete(0, tk.END)
-                self.password_entry.configure(fg="black", show="*")  # 输入密码后修改文字颜色为black, 隐蔽输入
+            self.password_entry.configure(fg="black") #, show="*"
+            self.password_modified = True
+
         def restore_default_password(event):
             if not self.password_entry.get():
                 self.password_entry.insert(0, "留空则无密码")
@@ -183,36 +213,29 @@ class SteganographierGUI:
             else:
                 self.password_modified = True
 
-        self.root.title(self.title)
-        try:
-            self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
-        except tk.TclError:
-            print("无法找到图标文件, 继续运行程序...")
+        if self.password:
+            self.password_entry.insert(0, self.password)
+            self.password_entry.configure(fg="black") # , show="*"
+            self.password_modified = True
+        else:
+            self.password_entry.insert(0, "留空则无密码")
         
-        # 1.1 参数设定部分
-        params_frame = tk.Frame(self.root)
-        params_frame.pack(pady=5)
-        self.password_label = tk.Label(params_frame, text="密码:")
-        self.password_label.pack(side=tk.LEFT, padx=5)
-        self.password_entry = tk.Entry(params_frame, width=13, fg="grey")
-        restore_default_password(None) # 调用restore_default函数设置初始文字
         self.password_entry.pack(side=tk.LEFT, padx=10)
+        self.password_entry.bind("<FocusIn>", clear_default_password)
+        self.password_entry.bind("<FocusOut>", restore_default_password)
 
-        self.password_entry.bind("<FocusIn>", clear_default_password)     # 当输入框为焦点时, 调用clear_default函数
-        self.password_entry.bind("<FocusOut>", restore_default_password)  # 当输入框失去焦点时, 调用restore_default函数
-        
-        self.type_option_var = tk.StringVar() # 创建一个变量用于存储下拉菜单的选项
-        self.type_option_var.set("mp4")  # 设置文件类型默认值
+        # 工作模式选择
         self.type_option_label = tk.Label(params_frame, text="工作模式:")
         self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
-        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv") # 下拉菜单
-        self.type_option.config(width=4)  # 设置宽度
+        self.type_option_var = tk.StringVar(value=self.type_option_var.get())  # 使用加载的配置
+        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv")
+        self.type_option.config(width=4)
         self.type_option.pack(side=tk.LEFT, padx=5, pady=5)
 
+        # 输出选项
         self.output_option_label = tk.Label(params_frame, text="输出名:")
         self.output_option_label.pack(side=tk.LEFT, padx=5, pady=5)
-        self.output_option_var = tk.StringVar()
-        self.output_option_var.set("原文件名")
+        self.output_option_var = tk.StringVar(value=self.output_option)  # 使用加载的配置
         self.output_option = tk.OptionMenu(params_frame, self.output_option_var, "原文件名", "外壳文件名", "随机文件名")
         self.output_option.config(width=8)
         self.output_option.pack(side=tk.LEFT, padx=5, pady=5)
@@ -569,7 +592,36 @@ class SteganographierGUI:
         self.captcha_generator_thread = threading.Thread(target=run_and_wait)
         self.captcha_generator_thread.start()
 
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r') as f:
+                config = json.load(f)
+                # 从配置文件获取 video_folder_path，若不存在则使用默认值
+                self.video_folder_path = config.get('video_folder_path', self.video_folder_path) 
+                # 如果 video_folder_path 不存在，使用默认路径
+                if not os.path.exists(self.video_folder_path):
+                    # 在这里设置默认的路径
+                    self.video_folder_path = os.path.join(application_path, "cover_video")
+                    
+                self.password = config.get('password', '')
+                self.output_option = config.get('output_option', self.output_option)
+                self.type_option_var = tk.StringVar(value=config.get('type_option', 'mp4'))
+                self.output_cover_video_name_mode_var = tk.StringVar(value=config.get('output_cover_video_name_mode', ''))
+
+    def save_config(self):
+        config = {
+            'video_folder_path': self.video_folder_path,
+            'password': self.password_entry.get() if self.password_modified else '',
+            'output_option': self.output_option_var.get(),
+            'type_option': self.type_option_var.get(),
+            'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get()
+        }
+        with open(self.config_file, 'w') as f:
+            json.dump(config, f, indent=4)
+
     def on_closing(self):
+        # 程序关闭时保存配置
+        self.save_config()
         # 程序退出时关闭已打开的 hash_generator
         if self.hash_modifier_process:
             # 使用 taskkill 命令强制结束进程树
@@ -649,13 +701,6 @@ class Steganographier:
         else:
             self.log_callback(message)
 
-    def save_config(self): # 保存配置文件的方法（开发中）
-        config_json = {
-            'self.video_folder_path': self.video_folder_path,
-            'self.password': self.password,
-
-        }
-
     def choose_cover_video_file(self, cover_video_CLI=None, 
                                 processed_files=None, 
                                 output_cover_video_name_mode=None,
@@ -700,44 +745,160 @@ class Steganographier:
         cover_video_path = os.path.join(video_folder_path, cover_video)
         print(f'cover_video_path: {cover_video_path}')
         return cover_video_path
-    
+        
     def compress_files(self, zip_file_path, input_file_path, processed_size=0, password=None):
-        # 6.1 选择是否使用加密
+        # 计算文件或文件夹的大小
+        def get_file_or_folder_size(path):
+            total_size = 0
+            if os.path.isfile(path):
+                total_size = os.path.getsize(path)
+            elif os.path.isdir(path):
+                for dirpath, dirnames, filenames in os.walk(path):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        total_size += os.path.getsize(fp)
+            return total_size
+
+        # 计算文件或文件夹的 SHA-256 哈希值
+        def compute_sha256(path):
+            sha256_hash = hashlib.sha256()
+            if os.path.isfile(path):
+                with open(path, 'rb') as f:
+                    for byte_block in iter(lambda: f.read(4096), b''):
+                        sha256_hash.update(byte_block)
+            elif os.path.isdir(path):
+                # 对于文件夹，按照文件名排序，递归计算所有文件的哈希值并更新
+                for root, dirs, files in os.walk(path):
+                    for names in sorted(files):
+                        filepath = os.path.join(root, names)
+                        sha256_hash.update(names.encode())  # 更新文件名到哈希
+                        with open(filepath, 'rb') as f:
+                            for byte_block in iter(lambda: f.read(4096), b''):
+                                sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+
+        # 计算输入文件或文件夹的总大小
+        self.total_file_size = get_file_or_folder_size(input_file_path)
+        
+        # 计算 SHA-256 哈希值
+        sha256_value = compute_sha256(input_file_path)
+
+        # 计算时间戳及其哈希值
+        readable_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        time_hash =  hashlib.sha256(readable_time.encode()).hexdigest()
+        
+        # 准备要添加到 ZIP 注释中的信息
+        zip_comment = f"SHA-256 Hash of '{os.path.basename(input_file_path)}':\n{sha256_value}\nTimestamp '{readable_time}'\nTimehash '{time_hash}'"
+
         if password:
-            # 使用密码加密
+            # 当设置了密码时，使用 pyzipper 进行 AES 加密
             zip_file = pyzipper.AESZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES)
             zip_file.setpassword(password.encode())
+
+            with zip_file:
+                self.log(f"Compressing file with encryption: {input_file_path}\n较大的文件可能会花费较长时间...")
+
+                # 收集所有需要压缩的文件
+                file_list = []
+
+                if os.path.isdir(input_file_path):
+                    root_folder = os.path.basename(input_file_path)
+                    for root, dirs, files in os.walk(input_file_path):
+                        for file in files:
+                            file_full_path = os.path.join(root, file)
+                            arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
+                            file_list.append((file_full_path, arcname))
+                else:
+                    file_full_path = input_file_path
+                    arcname = os.path.basename(input_file_path)
+                    file_list.append((file_full_path, arcname))
+
+                # 随机化文件列表顺序
+                random.shuffle(file_list)
+
+                for file_full_path, arcname in file_list:
+                    # 随机选择压缩方法
+                    compress_type = random.choice([pyzipper.ZIP_DEFLATED, pyzipper.ZIP_STORED])
+
+                    # 将文件写入 ZIP 存档
+                    zip_file.write(file_full_path, arcname=arcname, compress_type=compress_type)
+
+                    # 更新已处理的大小并更新进度条
+                    processed_size += os.path.getsize(file_full_path)
+                    if self.progress_callback:
+                        self.progress_callback(processed_size, self.total_file_size)
+
+                # 设置 ZIP 文件的注释
+                zip_file.comment = zip_comment.encode('utf-8')
+
         else:
-            # 不使用加密
-            zip_file = pyzipper.ZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED)
-        
-        # 6.2 压缩zip文件
-        with zip_file:
-            self.log(f"Compressing file: {input_file_path}\n较大的文件可能会花费较长时间...")
-            
-            # 假如被隐写的文件是一个文件夹
-            if os.path.isdir(input_file_path):
-                # 定义总的顶层文件夹名为原文件夹的名字
-                root_folder = os.path.basename(input_file_path)
-                # 然后隐写其下所有文件
-                for root, dirs, files in os.walk(input_file_path):
-                    for file in files:
-                        file_full_path = os.path.join(root, file)
-                        # 在原有的相对路径前加上顶层文件夹名
-                        arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
-                        zip_file.write(file_full_path, arcname)
-                        
-                        # 更新已处理的大小并更新进度条
-                        processed_size += os.path.getsize(file_full_path)
-                        if self.progress_callback:
-                            self.progress_callback(processed_size, self.total_file_size) # 此处使用的进度条函数来自GUI传入的回调函数
-            else:
-                # 否则只隐写该文件
-                zip_file.write(input_file_path, os.path.basename(input_file_path))
-                # 更新已处理的大小并更新进度条
-                processed_size = os.path.getsize(input_file_path)
-                if self.progress_callback:
-                    self.progress_callback(processed_size, self.total_file_size)
+            # 当未设置密码时，使用 zipfile 模块，这样可以设置 compresslevel 等
+            zip_file = zipfile.ZipFile(zip_file_path, 'w')
+
+            with zip_file:
+                self.log(f"Compressing file without encryption: {input_file_path}\n较大的文件可能会花费较长时间...")
+
+                # 收集所有需要压缩的文件
+                file_list = []
+
+                if os.path.isdir(input_file_path):
+                    root_folder = os.path.basename(input_file_path)
+                    for root, dirs, files in os.walk(input_file_path):
+                        for file in files:
+                            file_full_path = os.path.join(root, file)
+                            arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
+                            file_list.append((file_full_path, arcname))
+                else:
+                    file_full_path = input_file_path
+                    arcname = os.path.basename(input_file_path)
+                    file_list.append((file_full_path, arcname))
+
+                # 随机化文件列表顺序
+                random.shuffle(file_list)
+
+                for file_full_path, arcname in file_list:
+                    # 随机选择压缩方法
+                    compress_type = random.choice([zipfile.ZIP_DEFLATED, zipfile.ZIP_DEFLATED]) # , zipfile.ZIP_STORED
+
+                    # 如果使用 ZIP_DEFLATED，随机选择压缩等级
+                    if compress_type == zipfile.ZIP_DEFLATED:
+                        compresslevel = random.randint(1, 9)  # 压缩等级 1-9
+                    else:
+                        compresslevel = None  # 对于 ZIP_STORED，压缩等级无效, 目前暂不启用
+
+                    # 随机生成文件日期和时间
+                    while True:
+                        try:
+                            date_time = (
+                                random.randint(1980, 2099),  # 年
+                                random.randint(1, 12),       # 月
+                                random.randint(1, 28),       # 日
+                                random.randint(0, 23),       # 时
+                                random.randint(0, 59),       # 分
+                                random.randint(0, 59)        # 秒
+                            )
+                            datetime.datetime(*date_time)
+                            break
+                        except ValueError:
+                            continue
+
+                    # 创建 ZipInfo 对象
+                    zi = zipfile.ZipInfo(filename=arcname, date_time=date_time)
+                    zi.compress_type = compress_type
+
+                    # 将文件写入 ZIP 存档
+                    if compresslevel is not None:
+                        zip_file.write(file_full_path, arcname=arcname, compress_type=compress_type, compresslevel=compresslevel)
+                    else:
+                        zip_file.write(file_full_path, arcname=arcname, compress_type=compress_type)
+
+                    # 更新已处理的大小并更新进度条
+                    processed_size += os.path.getsize(file_full_path)
+                    if self.progress_callback:
+                        self.progress_callback(processed_size, self.total_file_size)
+
+                # 设置 ZIP 文件的注释
+                zip_file.comment = zip_comment.encode('utf-8')
 
     def hide_file(self, input_file_path, 
                   cover_video_CLI=None, 
@@ -771,7 +932,6 @@ class Steganographier:
             
         processed_size = 0  # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
-
 
         try:        
             # 4.1. 隐写MP4文件的逻辑
@@ -899,9 +1059,6 @@ class Steganographier:
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
 
-        # 6. 保存配置文件
-        self.save_config()
-
     # 隐写时指定输出文件名+路径的方法
     def get_output_file_path(self, input_file_path=None, 
                              output_file_path=None, 
@@ -981,6 +1138,10 @@ class Steganographier:
 
         password_list = [password] if password else []
         password_list.extend(self.passwords)
+        
+        # 如果没有提供任何密码，添加空密码('')到列表中
+        if not password_list:
+            password_list.append('')
 
         if self.type_option_var == 'mp4':
             for test_password in password_list:
@@ -993,7 +1154,9 @@ class Steganographier:
 
                     with open(input_file_path, "rb") as file1:
                         with pyzipper.AESZipFile(file1) as zip_file:
-                            zip_file.setpassword(test_password.encode())
+                            # 仅当密码不为空时才设置密码
+                            if test_password:
+                                zip_file.setpassword(test_password.encode())
                             for name in zip_file.namelist():
                                 output_file_path = os.path.join(os.path.dirname(input_file_path), name)
                                 self.log(f"Attempting to create file: {output_file_path}")
@@ -1053,7 +1216,10 @@ class Steganographier:
                         for test_password in password_list:
                             try:
                                 with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
-                                    zip_file.extractall(os.path.dirname(input_file_path), pwd=test_password.encode())
+                                    # 仅当密码不为空时才设置密码
+                                    if test_password:
+                                        zip_file.setpassword(test_password.encode())
+                                    zip_file.extractall(os.path.dirname(input_file_path))
                                 
                                 os.remove(zip_path)
                                 os.remove(input_file_path)
@@ -1117,7 +1283,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
-    parser = argparse.ArgumentParser(description='隐写者 Ver.1.2.1 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 Ver.1.2.5 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
