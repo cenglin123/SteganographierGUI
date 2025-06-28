@@ -2289,7 +2289,7 @@ class Steganographier:
             
             try:
                 if method_name == 'mp4_trailing':
-                    success = extract_trailing_zip_simple(input_file_path, output_dir, password_list, self.log)
+                    success = self._try_mp4_direct_extraction(input_file_path, password_list)
                     
                 elif method_name == 'mp4_zarchiver':
                     success = extract_with_offset_correction(input_file_path, output_dir, password_list, self.log)
@@ -2329,7 +2329,85 @@ class Steganographier:
             self.log("3. 文件损坏")
             self.log("4. 使用了不支持的隐写方法")
 
-    def _try_mkv_extraction(self, input_file_path, password_list):
+    def _try_mp4_direct_extraction(self, input_file_path, password_list):
+        """
+        尝试直接从MP4文件中提取ZIP内容（普通MP4隐写模式）
+        """
+        try:
+            self.log(f"Loaded passwords: {self.passwords}")
+            
+            for test_password in password_list:
+                try:
+                    # 添加详细的调试信息
+                    self.log(f"Attempting to reveal file with password: '{test_password}' (len: {len(test_password)})")
+
+                    total_size_hidden = os.path.getsize(input_file_path)
+                    processed_size = 0
+
+                    with open(input_file_path, "rb") as file1:
+                        with pyzipper.AESZipFile(file1) as zip_file:
+                            # 仅当密码不为空时才设置密码
+                            if test_password:
+                                zip_file.setpassword(test_password.encode())
+                            
+                            for name in zip_file.namelist():
+                                # 清理文件名中的不安全字符
+                                clean_name = sanitize_path(name)
+                                
+                                # 跳过空名称
+                                if not clean_name:
+                                    self.log(f"跳过空文件名: {name}")
+                                    continue
+                                
+                                output_file_path = os.path.join(os.path.dirname(input_file_path), clean_name)
+                                
+                                # 检查是否为文件夹（以 / 结尾）
+                                if name.endswith('/'):
+                                    self.log(f"创建文件夹: {output_file_path}")
+                                    try:
+                                        os.makedirs(output_file_path, exist_ok=True)
+                                    except OSError as e:
+                                        self.log(f"无法创建文件夹 {output_file_path}: {e}")
+                                    continue  # 跳过文件夹，继续处理下一个条目
+                                
+                                # 处理文件
+                                # 确保文件的父目录存在
+                                output_dir = os.path.dirname(output_file_path)
+                                if output_dir:
+                                    try:
+                                        os.makedirs(output_dir, exist_ok=True)
+                                    except OSError as e:
+                                        self.log(f"无法创建目录 {output_dir}: {e}")
+                                        continue
+                                
+                                self.log(f"正在提取文件: {output_file_path}")
+                                
+                                try:
+                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                                        for chunk in self.read_in_chunks(source):
+                                            output.write(chunk)
+                                            processed_size += len(chunk)
+                                            if self.progress_callback:
+                                                self.progress_callback(processed_size, total_size_hidden)
+                                except (OSError, IOError) as e:
+                                    self.log(f"无法创建文件 {output_file_path}: {e}")
+                                    continue
+
+                    self.log(f"File extracted successfully with password: {test_password}")
+                    return True  # 成功解压
+
+                except (pyzipper.BadZipFile, ValueError, RuntimeError) as e:
+                    self.log(f"无法解压文件 {input_file_path}, 使用密码 {test_password} 失败: {str(e)}")
+                    continue
+
+            self.log("所有密码尝试失败，无法解压文件")
+            return False
+            
+        except Exception as e:
+            self.log(f"MP4直接提取过程出错: {e}")
+            return False
+
+    def _try_mkv_extraction(self, input_file_path, password_list):        
         """
         尝试MKV附件提取
         """
