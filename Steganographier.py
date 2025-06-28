@@ -568,17 +568,132 @@ def extract_trailing_zip_simple(file_path, output_dir, password_list, log_func):
 def extract_with_offset_correction(file_path, output_dir, password_list, log_func):
     """
     带偏移量修正的ZIP提取（适用于ZArchiver兼容模式）
+    处理隐藏在 free 原子中的数据
     """
     try:
-        # 这个方法需要反向修正之前的偏移量调整
-        # 实际上对于ZArchiver模式，我们可能需要特殊处理
-        log_func("ZArchiver模式提取（实验性）...")
+        log_func("ZArchiver模式提取：查找 free 原子中的隐藏数据...")
         
-        # 先尝试简单方法
-        return extract_trailing_zip_simple(file_path, output_dir, password_list, log_func)
+        with open(file_path, 'rb') as f:
+            # 读取文件头，检查是否为MP4文件
+            f.seek(0)
+            header = f.read(12)
+            if len(header) < 12:
+                log_func("文件太小，不是有效的MP4文件")
+                return False
+            
+            # 检查ftyp原子
+            size = struct.unpack('>I', header[:4])[0]
+            atom_type = header[4:8].decode('ascii', errors='ignore')
+            
+            if atom_type != 'ftyp':
+                log_func("未找到ftyp原子，可能不是有效的MP4文件")
+                return False
+                
+            log_func(f"找到ftyp原子，大小: {size}")
+            
+            # 跳过ftyp原子，查找free原子
+            f.seek(size)
+            
+            while True:
+                pos = f.tell()
+                atom_header = f.read(8)
+                
+                if len(atom_header) < 8:
+                    log_func("到达文件末尾，未找到包含隐藏数据的free原子")
+                    break
+                
+                atom_size = struct.unpack('>I', atom_header[:4])[0]
+                atom_type = atom_header[4:8].decode('ascii', errors='ignore')
+                
+                log_func(f"检查原子: {atom_type}, 大小: {atom_size}, 位置: {pos}")
+                
+                if atom_type == 'free':
+                    log_func(f"找到free原子，位置: {pos}, 大小: {atom_size}")
+                    
+                    # 读取free原子的数据部分（跳过8字节头部）
+                    if atom_size <= 8:
+                        log_func("free原子太小，跳过")
+                        continue
+                        
+                    free_data = f.read(atom_size - 8)
+                    
+                    # 检查是否包含ZIP数据
+                    if len(free_data) >= 4:
+                        # 检查ZIP文件头 (PK\x03\x04)
+                        if free_data.startswith(b'PK\x03\x04'):
+                            log_func("在free原子中找到ZIP数据！")
+                            
+                            # 直接在内存中处理ZIP数据
+                            try:
+                        
+                                # 尝试用不同密码解压
+                                success = False
+                                for password in password_list:
+                                    try:
+                                        log_func(f"尝试密码: {'(空密码)' if not password else password}")
+                                        
+                                        # 使用BytesIO创建内存中的ZIP文件对象
+                                        zip_buffer = io.BytesIO(free_data)
+                                        
+                                        with pyzipper.AESZipFile(zip_buffer, 'r') as zip_file:
+                                            if password:
+                                                zip_file.setpassword(password.encode())
+                                            
+                                            # 列出ZIP内容
+                                            file_list = zip_file.namelist()
+                                            log_func(f"ZIP文件包含: {file_list}")
+                                            
+                                            # 解压所有文件到输出目录
+                                            zip_file.extractall(output_dir)
+                                            success = True
+                                            log_func(f"成功解压，使用密码: {'(空密码)' if not password else password}")
+                                            break
+                                            
+                                    except Exception as e:
+                                        log_func(f"密码 {'(空密码)' if not password else password} 解压失败: {e}")
+                                        continue
+                                
+                                if success:
+                                    log_func("ZArchiver模式解压成功！")
+                                    return True
+                                else:
+                                    log_func("所有密码都尝试失败")
+                                    
+                            except Exception as e:
+                                log_func(f"处理ZIP数据时出错: {e}")
+                        else:
+                            # 检查是否有其他压缩格式的特征码
+                            signatures = {
+                                b'Rar!': 'RAR',
+                                b'7z\xbc\xaf\x27\x1c': '7Z',
+                                b'\x1f\x8b': 'GZIP'
+                            }
+                            
+                            found_signature = False
+                            for sig, format_name in signatures.items():
+                                if free_data.startswith(sig):
+                                    log_func(f"在free原子中找到{format_name}格式数据，但当前只支持ZIP格式")
+                                    found_signature = True
+                                    break
+                            
+                            if not found_signature:
+                                log_func("free原子中的数据不是已知的压缩格式")
+                else:
+                    # 跳过当前原子
+                    if atom_size <= 8:
+                        log_func(f"原子大小异常: {atom_size}")
+                        break
+                    
+                    # 移动到下一个原子
+                    f.seek(pos + atom_size)
+        
+        log_func("ZArchiver模式提取失败：未找到有效的隐藏数据")
+        return False
         
     except Exception as e:
-        log_func(f"ZArchiver模式提取失败: {e}")
+        log_func(f"ZArchiver模式提取异常: {e}")
+        import traceback
+        log_func(f"详细错误: {traceback.format_exc()}")
         return False
 
 
@@ -740,6 +855,268 @@ def update_container_atom_offsets(container_data, offset_adjustment):
         pos += size
     
     return bytes(updated_data)
+
+# 解除隐写
+def detect_mp4_steganography_method(file_path):
+    """
+    检测MP4文件使用的隐写方法
+    返回: 'free', 'moov', 'unknown', 'none'
+    """
+    try:
+        atoms = read_mp4_atoms(file_path)
+        
+        # 检查是否有包含大量数据的free原子（新版本方法）
+        for atom in atoms:
+            if atom['type'] == 'free' and atom['size'] > 1024:  # 大于1KB的free原子可能包含隐藏数据
+                return 'free'
+        
+        # 检查是否在文件末尾有疑似压缩包数据（旧版本方法）
+        file_size = os.path.getsize(file_path)
+        with open(file_path, 'rb') as f:
+            # 检查文件末尾是否有ZIP文件头
+            for offset in range(max(0, file_size - 1024*1024), file_size - 8):  # 检查最后1MB
+                f.seek(offset)
+                data = f.read(8)
+                if len(data) >= 4:
+                    # 检查ZIP文件头特征
+                    if data[:4] == b'\x50\x4B\x03\x04' or data[:4] == b'\x50\x4B\x05\x06':
+                        return 'moov'
+            
+            # 检查文件中是否有moov原子且包含异常大的数据
+            for atom in atoms:
+                if atom['type'] == 'moov':
+                    # 如果moov原子异常大，可能包含隐藏数据
+                    normal_moov_size = 1024 * 100  # 正常moov原子通常小于100KB
+                    if atom['size'] > normal_moov_size:
+                        return 'moov'
+        
+        return 'none'
+        
+    except Exception as e:
+        print(f"检测隐写方法时出错: {e}")
+        return 'unknown'
+
+def extract_from_free_atom(file_path, output_dir, password_list):
+    """
+    从free原子中提取隐藏数据（新版本方法）
+    """
+    try:
+        atoms = read_mp4_atoms(file_path)
+        
+        # 查找包含数据的free原子
+        target_free = None
+        for atom in atoms:
+            if atom['type'] == 'free' and atom['size'] > 1024:
+                target_free = atom
+                break
+        
+        if not target_free:
+            return False, "未找到包含数据的free原子"
+        
+        # 提取free原子中的数据
+        with open(file_path, 'rb') as f:
+            f.seek(target_free['offset'] + target_free['header_size'])
+            hidden_data = f.read(target_free['size'] - target_free['header_size'])
+        
+        # 尝试解压数据
+        return self.extract_zip_data(hidden_data, output_dir, password_list)
+        
+    except Exception as e:
+        return False, f"从free原子提取数据时出错: {e}"
+
+def extract_from_moov_method(file_path, output_dir, password_list):
+    """
+    从文件末尾提取隐藏数据（旧版本方法）
+    """
+    try:
+        file_size = os.path.getsize(file_path)
+        
+        with open(file_path, 'rb') as f:
+            # 寻找ZIP文件开始位置
+            zip_start_offset = None
+            
+            # 方法1: 寻找ZIP文件头
+            for offset in range(max(0, file_size - 1024*1024), file_size - 8):
+                f.seek(offset)
+                data = f.read(4)
+                if data == b'\x50\x4B\x03\x04':  # ZIP文件头
+                    zip_start_offset = offset
+                    break
+            
+            # 方法2: 如果没找到ZIP头，尝试寻找moov原子后的数据
+            if zip_start_offset is None:
+                atoms = read_mp4_atoms(file_path)
+                for atom in atoms:
+                    if atom['type'] == 'moov':
+                        # 检查moov原子后是否有额外数据
+                        moov_end = atom['offset'] + atom['size']
+                        if moov_end < file_size - 1024:  # 如果moov后还有足够的数据
+                            f.seek(moov_end)
+                            # 跳过可能的moov头部
+                            test_data = f.read(16)
+                            if b'moov' in test_data:
+                                # 找到内嵌的moov，跳过它
+                                f.seek(moov_end + 8)
+                                zip_start_offset = f.tell()
+                            else:
+                                zip_start_offset = moov_end
+                            break
+            
+            if zip_start_offset is None:
+                return False, "未找到ZIP数据开始位置"
+            
+            # 读取ZIP数据
+            f.seek(zip_start_offset)
+            zip_data = f.read()
+            
+            # 清理可能的尾部垃圾数据
+            zip_data = self.clean_zip_data(zip_data)
+            
+            return self.extract_zip_data(zip_data, output_dir, password_list)
+            
+    except Exception as e:
+        return False, f"从文件末尾提取数据时出错: {e}"
+
+def clean_zip_data(zip_data):
+    """
+    清理ZIP数据，移除可能的尾部垃圾数据
+    """
+    try:
+        # 寻找ZIP文件的结束标记
+        end_signature = b'\x50\x4B\x05\x06'  # ZIP end of central directory signature
+        
+        # 从后往前查找
+        for i in range(len(zip_data) - 4, -1, -1):
+            if zip_data[i:i+4] == end_signature:
+                # 找到结束标记，读取目录长度
+                if i + 22 <= len(zip_data):
+                    # 检查是否是完整的EOCD记录
+                    return zip_data[:i+22]
+        
+        # 如果没找到标准结束标记，尝试其他方法
+        # 寻找最后一个有效的ZIP文件头
+        last_valid_pos = 0
+        for i in range(len(zip_data) - 4):
+            if zip_data[i:i+4] == b'\x50\x4B\x03\x04':  # 文件头
+                last_valid_pos = i
+        
+        if last_valid_pos > 0:
+            # 从最后一个文件头开始，尝试保留合理长度的数据
+            remaining_data = zip_data[last_valid_pos:]
+            if len(remaining_data) < len(zip_data) * 0.9:  # 如果移除了超过10%的数据
+                return remaining_data
+        
+        return zip_data
+        
+    except Exception:
+        return zip_data
+
+def extract_zip_data(zip_data, output_dir, password_list):
+    """
+    尝试解压ZIP数据
+    """
+    temp_zip_path = None
+    try:
+        # 写入临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
+            temp_zip_path = temp_file.name
+            temp_file.write(zip_data)
+        
+        # 尝试用每个密码解压
+        for password in password_list:
+            try:
+                # 首先尝试pyzipper (AES加密)
+                try:
+                    with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
+                        if password:
+                            zip_file.setpassword(password.encode())
+                        
+                        # 测试是否能正常读取
+                        namelist = zip_file.namelist()
+                        if not namelist:
+                            continue
+                        
+                        # 解压所有文件
+                        for name in namelist:
+                            clean_name = sanitize_path(name)
+                            if not clean_name:
+                                continue
+                            
+                            output_file_path = os.path.join(output_dir, clean_name)
+                            
+                            if name.endswith('/'):
+                                os.makedirs(output_file_path, exist_ok=True)
+                                continue
+                            
+                            # 确保父目录存在
+                            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+                            
+                            with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
+                                while True:
+                                    chunk = source.read(8192)
+                                    if not chunk:
+                                        break
+                                    target.write(chunk)
+                        
+                        return True, f"使用密码 '{password}' 成功解压 (AES)"
+                        
+                except (pyzipper.BadZipFile, RuntimeError):
+                    pass
+                
+                # 然后尝试标准zipfile
+                try:
+                    with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
+                        if password:
+                            zip_file.setpassword(password.encode())
+                        
+                        # 测试是否能正常读取
+                        namelist = zip_file.namelist()
+                        if not namelist:
+                            continue
+                        
+                        # 解压所有文件
+                        for name in namelist:
+                            clean_name = sanitize_path(name)
+                            if not clean_name:
+                                continue
+                            
+                            output_file_path = os.path.join(output_dir, clean_name)
+                            
+                            if name.endswith('/'):
+                                os.makedirs(output_file_path, exist_ok=True)
+                                continue
+                            
+                            # 确保父目录存在
+                            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+                            
+                            with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
+                                while True:
+                                    chunk = source.read(8192)
+                                    if not chunk:
+                                        break
+                                    target.write(chunk)
+                        
+                        return True, f"使用密码 '{password}' 成功解压 (Standard)"
+                        
+                except (zipfile.BadZipFile, RuntimeError):
+                    pass
+                    
+            except Exception as e:
+                continue
+        
+        return False, "所有密码尝试失败"
+        
+    except Exception as e:
+        return False, f"解压ZIP数据时出错: {e}"
+    finally:
+        # 清理临时文件
+        if temp_zip_path and os.path.exists(temp_zip_path):
+            try:
+                os.unlink(temp_zip_path)
+            except:
+                pass
+
+
 
 ##############################################
 #################工具函数区结束################
@@ -1662,7 +2039,6 @@ class Steganographier:
                             final_size = output.tell()
                             self.log(f"最终文件大小: {final_size} bytes")
                             
-                            self.log("通用兼容隐写完成 - 保持原生ZIP结构")
 
             # 4.2. 隐写mkv文件的逻辑
             elif self.type_option_var == 'mkv':
@@ -1832,8 +2208,6 @@ class Steganographier:
                                 # 添加 MP4 文件的结尾标记 (空的 "mdat" box)
                                 add_empty_mdat_box(output)
                                 
-                                self.log("MP4隐写完成，数据已放置在ftyp后的free原子中，偏移量已更新，已添加哈希随机化")
-                
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
                     raise
@@ -1870,7 +2244,7 @@ class Steganographier:
         print(f'type option: {self.type_option_var}')
         
         # 支持 mp4 和 mp4(zarchiver) 两种模式
-        if self.type_option_var in ['mp4', 'mp4(zarchiver)']:
+        if self.type_option_var in ['mp4']:
             print(f'input_file_path: {input_file_path}')
             print(f'cover_video_path: {cover_video_path}')
 
@@ -1889,6 +2263,26 @@ class Steganographier:
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
             print(f"output_file_path: {output_file_path}\n")    
+
+        elif self.type_option_var in ['mp4(zarchiver)']:
+            print(f'input_file_path: {input_file_path}')
+            print(f'cover_video_path: {cover_video_path}')
+
+            # 输出文件名选择
+            print(f'output_option: {output_option}')
+            if output_option == '原文件名':
+                if os.path.isdir(input_file_path):
+                    output_file_path = input_file_path + f"_hidden_z{processed_files+1}.mp4" # 当为文件夹时不存在扩展名
+                else:
+                    output_file_path = os.path.splitext(input_file_path)[0] + f"_hidden_z{processed_files+1}.mp4"
+            elif output_option == '外壳文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                                os.path.split(cover_video_path)[1].replace('.mp4', f'_z{processed_files+1}.mp4')
+                                                )
+            elif output_option == '随机文件名':
+                output_file_path = os.path.join(os.path.split(input_file_path)[0], 
+                                        generate_random_filename(length=16) + f'_z{processed_files+1}.mp4')
+            print(f"output_file_path: {output_file_path}\n")   
         
         elif self.type_option_var == 'mkv':
             # 输出文件名选择
@@ -1924,265 +2318,6 @@ class Steganographier:
                         if password:
                             passwords.append(password)
         return passwords
-    
-    def detect_mp4_steganography_method(self, file_path):
-        """
-        检测MP4文件使用的隐写方法
-        返回: 'free', 'moov', 'unknown', 'none'
-        """
-        try:
-            atoms = read_mp4_atoms(file_path)
-            
-            # 检查是否有包含大量数据的free原子（新版本方法）
-            for atom in atoms:
-                if atom['type'] == 'free' and atom['size'] > 1024:  # 大于1KB的free原子可能包含隐藏数据
-                    return 'free'
-            
-            # 检查是否在文件末尾有疑似压缩包数据（旧版本方法）
-            file_size = os.path.getsize(file_path)
-            with open(file_path, 'rb') as f:
-                # 检查文件末尾是否有ZIP文件头
-                for offset in range(max(0, file_size - 1024*1024), file_size - 8):  # 检查最后1MB
-                    f.seek(offset)
-                    data = f.read(8)
-                    if len(data) >= 4:
-                        # 检查ZIP文件头特征
-                        if data[:4] == b'\x50\x4B\x03\x04' or data[:4] == b'\x50\x4B\x05\x06':
-                            return 'moov'
-                
-                # 检查文件中是否有moov原子且包含异常大的数据
-                for atom in atoms:
-                    if atom['type'] == 'moov':
-                        # 如果moov原子异常大，可能包含隐藏数据
-                        normal_moov_size = 1024 * 100  # 正常moov原子通常小于100KB
-                        if atom['size'] > normal_moov_size:
-                            return 'moov'
-            
-            return 'none'
-            
-        except Exception as e:
-            print(f"检测隐写方法时出错: {e}")
-            return 'unknown'
-
-    def extract_from_free_atom(self, file_path, output_dir, password_list):
-        """
-        从free原子中提取隐藏数据（新版本方法）
-        """
-        try:
-            atoms = read_mp4_atoms(file_path)
-            
-            # 查找包含数据的free原子
-            target_free = None
-            for atom in atoms:
-                if atom['type'] == 'free' and atom['size'] > 1024:
-                    target_free = atom
-                    break
-            
-            if not target_free:
-                return False, "未找到包含数据的free原子"
-            
-            # 提取free原子中的数据
-            with open(file_path, 'rb') as f:
-                f.seek(target_free['offset'] + target_free['header_size'])
-                hidden_data = f.read(target_free['size'] - target_free['header_size'])
-            
-            # 尝试解压数据
-            return self.extract_zip_data(hidden_data, output_dir, password_list)
-            
-        except Exception as e:
-            return False, f"从free原子提取数据时出错: {e}"
-
-    def extract_from_moov_method(self, file_path, output_dir, password_list):
-        """
-        从文件末尾提取隐藏数据（旧版本方法）
-        """
-        try:
-            file_size = os.path.getsize(file_path)
-            
-            with open(file_path, 'rb') as f:
-                # 寻找ZIP文件开始位置
-                zip_start_offset = None
-                
-                # 方法1: 寻找ZIP文件头
-                for offset in range(max(0, file_size - 1024*1024), file_size - 8):
-                    f.seek(offset)
-                    data = f.read(4)
-                    if data == b'\x50\x4B\x03\x04':  # ZIP文件头
-                        zip_start_offset = offset
-                        break
-                
-                # 方法2: 如果没找到ZIP头，尝试寻找moov原子后的数据
-                if zip_start_offset is None:
-                    atoms = read_mp4_atoms(file_path)
-                    for atom in atoms:
-                        if atom['type'] == 'moov':
-                            # 检查moov原子后是否有额外数据
-                            moov_end = atom['offset'] + atom['size']
-                            if moov_end < file_size - 1024:  # 如果moov后还有足够的数据
-                                f.seek(moov_end)
-                                # 跳过可能的moov头部
-                                test_data = f.read(16)
-                                if b'moov' in test_data:
-                                    # 找到内嵌的moov，跳过它
-                                    f.seek(moov_end + 8)
-                                    zip_start_offset = f.tell()
-                                else:
-                                    zip_start_offset = moov_end
-                                break
-                
-                if zip_start_offset is None:
-                    return False, "未找到ZIP数据开始位置"
-                
-                # 读取ZIP数据
-                f.seek(zip_start_offset)
-                zip_data = f.read()
-                
-                # 清理可能的尾部垃圾数据
-                zip_data = self.clean_zip_data(zip_data)
-                
-                return self.extract_zip_data(zip_data, output_dir, password_list)
-                
-        except Exception as e:
-            return False, f"从文件末尾提取数据时出错: {e}"
-
-    def clean_zip_data(self, zip_data):
-        """
-        清理ZIP数据，移除可能的尾部垃圾数据
-        """
-        try:
-            # 寻找ZIP文件的结束标记
-            end_signature = b'\x50\x4B\x05\x06'  # ZIP end of central directory signature
-            
-            # 从后往前查找
-            for i in range(len(zip_data) - 4, -1, -1):
-                if zip_data[i:i+4] == end_signature:
-                    # 找到结束标记，读取目录长度
-                    if i + 22 <= len(zip_data):
-                        # 检查是否是完整的EOCD记录
-                        return zip_data[:i+22]
-            
-            # 如果没找到标准结束标记，尝试其他方法
-            # 寻找最后一个有效的ZIP文件头
-            last_valid_pos = 0
-            for i in range(len(zip_data) - 4):
-                if zip_data[i:i+4] == b'\x50\x4B\x03\x04':  # 文件头
-                    last_valid_pos = i
-            
-            if last_valid_pos > 0:
-                # 从最后一个文件头开始，尝试保留合理长度的数据
-                remaining_data = zip_data[last_valid_pos:]
-                if len(remaining_data) < len(zip_data) * 0.9:  # 如果移除了超过10%的数据
-                    return remaining_data
-            
-            return zip_data
-            
-        except Exception:
-            return zip_data
-
-    def extract_zip_data(self, zip_data, output_dir, password_list):
-        """
-        尝试解压ZIP数据
-        """
-        temp_zip_path = None
-        try:
-            # 写入临时文件
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
-                temp_zip_path = temp_file.name
-                temp_file.write(zip_data)
-            
-            # 尝试用每个密码解压
-            for password in password_list:
-                try:
-                    # 首先尝试pyzipper (AES加密)
-                    try:
-                        with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
-                            if password:
-                                zip_file.setpassword(password.encode())
-                            
-                            # 测试是否能正常读取
-                            namelist = zip_file.namelist()
-                            if not namelist:
-                                continue
-                            
-                            # 解压所有文件
-                            for name in namelist:
-                                clean_name = sanitize_path(name)
-                                if not clean_name:
-                                    continue
-                                
-                                output_file_path = os.path.join(output_dir, clean_name)
-                                
-                                if name.endswith('/'):
-                                    os.makedirs(output_file_path, exist_ok=True)
-                                    continue
-                                
-                                # 确保父目录存在
-                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                
-                                with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                    while True:
-                                        chunk = source.read(8192)
-                                        if not chunk:
-                                            break
-                                        target.write(chunk)
-                            
-                            return True, f"使用密码 '{password}' 成功解压 (AES)"
-                            
-                    except (pyzipper.BadZipFile, RuntimeError):
-                        pass
-                    
-                    # 然后尝试标准zipfile
-                    try:
-                        with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
-                            if password:
-                                zip_file.setpassword(password.encode())
-                            
-                            # 测试是否能正常读取
-                            namelist = zip_file.namelist()
-                            if not namelist:
-                                continue
-                            
-                            # 解压所有文件
-                            for name in namelist:
-                                clean_name = sanitize_path(name)
-                                if not clean_name:
-                                    continue
-                                
-                                output_file_path = os.path.join(output_dir, clean_name)
-                                
-                                if name.endswith('/'):
-                                    os.makedirs(output_file_path, exist_ok=True)
-                                    continue
-                                
-                                # 确保父目录存在
-                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                
-                                with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                    while True:
-                                        chunk = source.read(8192)
-                                        if not chunk:
-                                            break
-                                        target.write(chunk)
-                            
-                            return True, f"使用密码 '{password}' 成功解压 (Standard)"
-                            
-                    except (zipfile.BadZipFile, RuntimeError):
-                        pass
-                        
-                except Exception as e:
-                    continue
-            
-            return False, "所有密码尝试失败"
-            
-        except Exception as e:
-            return False, f"解压ZIP数据时出错: {e}"
-        finally:
-            # 清理临时文件
-            if temp_zip_path and os.path.exists(temp_zip_path):
-                try:
-                    os.unlink(temp_zip_path)
-                except:
-                    pass
 
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
         """
