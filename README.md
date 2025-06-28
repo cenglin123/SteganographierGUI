@@ -4,9 +4,16 @@
 
 ## 更新
 
+**2025/06/28 关于 1.3.0 版本 WinRAR 解压损坏的问题：**
+
+1.3.0 版尝试适配 zarchiver，但是目前发现 Zarchiver 和 WinRAR 只能兼容其中之一，因为此二者读文件一个从开头读一个从结尾读，把隐写内容放到前面则 zarchiver 不能读，把隐写内容放到后面则 WinRAR 不能读，无法兼容。鉴于目前 WinRAR 已经比较普及了，GitHub release 中更新了 1.3.0.1 版本，隐写方法回退，只修改视频选择栏样式，关于 zarchiver 还需要想其他办法。
+https://github.com/cenglin123/SteganographierGUI/releases/tag/v1.3.0
+
 **2025/06/27 更新 v1.3.0**
 
 修改外壳视频下拉选择框的样式，可用鼠标滚动切换外壳视频。
+
+---
 
 ### 隐写者 GUI&CLI两用的MP4/MKV隐写程序
 
