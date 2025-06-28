@@ -9,7 +9,7 @@ pip install pyzipper -i https://pypi.tuna.tsinghua.edu.cn/simple
 pip install hachoir -i https://pypi.tuna.tsinghua.edu.cn/simple
 pip install natsort -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-@author: Cr
+@author: cenglin123
 """
 
 import os
@@ -88,8 +88,9 @@ class ToolTip:
 
 
 
-
-
+#####################################
+############## 工具函数区 ############
+#####################################
 
 def sanitize_path(path: str) -> str:
     """
@@ -244,6 +245,342 @@ def add_empty_mdat_box(file):
     mdat_size = 8  # Minimum box size
     mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
     file.write(mdat_box)
+
+def add_randomization_data(file_obj):
+    """
+    添加随机化数据进行哈希混淆
+    """
+    head_signatures = {
+        "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
+        "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
+        "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
+        "ZIP":   b'\x50\x4B\x03\x04',
+        "GZIP":  b'\x1F\x8B',
+        "BZIP2": b'\x42\x5A\x68',
+        "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
+    }
+    
+    # 添加2组随机化数据
+    for i in range(2):
+        signature = random.choice(list(head_signatures.values()))
+        file_obj.write(signature)
+        
+        random_size = 1024 * random.randint(5, 10)
+        random_bytes = os.urandom(random_size)
+        file_obj.write(random_bytes)
+    
+    # 添加MP4结尾标记
+    mdat_size = 8
+    mdat_box = struct.pack('>I4s', mdat_size, b'mdat')
+    file_obj.write(mdat_box)
+
+def fix_zip_offsets_in_file(file_path, zip_start_offset):
+    """
+    在文件写入完成后修正ZIP的偏移量
+    """
+    def find_eocd_position(file_obj):
+        """
+        在文件中找到EOCD记录的位置
+        """
+        current_pos = file_obj.tell()
+        file_size = file_obj.seek(0, 2)  # 获取文件大小
+        
+        # 从文件末尾开始搜索EOCD签名
+        max_comment_size = 65535  # ZIP注释的最大长度
+        search_size = min(max_comment_size + 22, file_size)  # 22是EOCD记录的最小长度
+        
+        file_obj.seek(file_size - search_size)
+        data = file_obj.read(search_size)
+        
+        # 从后往前搜索EOCD签名 0x504B0506
+        eocd_signature = b'\x50\x4B\x05\x06'
+        
+        for i in range(len(data) - 4, -1, -1):
+            if data[i:i+4] == eocd_signature:
+                # 验证这是一个有效的EOCD记录
+                if i + 22 <= len(data):  # 确保有足够的数据
+                    eocd_pos = file_size - search_size + i
+                    file_obj.seek(current_pos)
+                    return eocd_pos
+        
+        file_obj.seek(current_pos)
+        return None
+
+    def fix_eocd_offsets(file_obj, eocd_pos, zip_start_offset):
+        """
+        修正EOCD记录中的偏移量
+        """
+        try:
+            # 读取当前的中央目录偏移量
+            file_obj.seek(eocd_pos + 16)
+            old_offset_bytes = file_obj.read(4)
+            old_offset = struct.unpack('<I', old_offset_bytes)[0]
+            
+            # 计算新的偏移量
+            new_offset = old_offset + zip_start_offset
+            
+            # 写入修正后的偏移量
+            file_obj.seek(eocd_pos + 16)
+            file_obj.write(struct.pack('<I', new_offset))
+            
+            return True
+            
+        except Exception as e:
+            print(f"修正EOCD偏移量时出错: {e}")
+            return False
+
+    def fix_central_directory_offsets(file_obj, cd_start_pos, cd_size, zip_start_offset):
+        """
+        修正中央目录中每个文件记录的本地文件头偏移量
+        """
+        try:
+            file_obj.seek(cd_start_pos)
+            pos = 0
+            
+            while pos < cd_size:
+                # 中央目录文件头签名
+                signature = file_obj.read(4)
+                if signature != b'\x50\x4B\x01\x02':
+                    break
+                
+                # 跳过大部分字段到达偏移量位置
+                file_obj.seek(file_obj.tell() + 24)  # 跳过24个字节
+                
+                # 读取文件名长度、扩展字段长度、注释长度
+                name_len, extra_len, comment_len = struct.unpack('<HHH', file_obj.read(6))
+                
+                # 跳过更多字段到达本地文件头偏移量位置
+                file_obj.seek(file_obj.tell() + 8)
+                
+                # 读取并修正本地文件头偏移量
+                old_offset_bytes = file_obj.read(4)
+                old_offset = struct.unpack('<I', old_offset_bytes)[0]
+                new_offset = old_offset + zip_start_offset
+                
+                # 写入修正后的偏移量
+                file_obj.seek(file_obj.tell() - 4)
+                file_obj.write(struct.pack('<I', new_offset))
+                
+                # 跳过文件名、扩展字段、注释到下一个记录
+                file_obj.seek(file_obj.tell() + name_len + extra_len + comment_len)
+                
+                pos = file_obj.tell() - cd_start_pos
+            
+            return True
+            
+        except Exception as e:
+            print(f"修正中央目录偏移量时出错: {e}")
+            return False
+    
+    # 在文件写入完成后修正ZIP的偏移量
+    try:
+        with open(file_path, "r+b") as f:  # 读写模式打开
+            # 找到EOCD记录
+            eocd_pos = find_eocd_position(f)
+            if eocd_pos:
+                print(f"找到EOCD记录位置: {eocd_pos}")
+                
+                # 修正EOCD中的中央目录偏移量
+                if fix_eocd_offsets(f, eocd_pos, zip_start_offset):
+                    print("EOCD偏移量修正成功")
+                    
+                    # 读取中央目录信息
+                    f.seek(eocd_pos + 12)
+                    cd_size = struct.unpack('<I', f.read(4))[0]
+                    cd_offset = struct.unpack('<I', f.read(4))[0]
+                    
+                    # 修正中央目录中的文件偏移量
+                    if fix_central_directory_offsets(f, cd_offset, cd_size, zip_start_offset):
+                        print("中央目录偏移量修正成功")
+                        return True
+                    else:
+                        print("警告: 中央目录偏移量修正失败")
+                else:
+                    print("警告: EOCD偏移量修正失败")
+            else:
+                print("警告: 未找到EOCD记录")
+                
+        return False
+        
+    except Exception as e:
+        print(f"修正ZIP偏移量时出错: {e}")
+        return False
+
+
+
+def extract_trailing_zip_simple(file_path, output_dir, password_list, log_func):
+    """
+    ZIP文件位于末尾的隐写内容提取（适用于WinRAR）
+    """
+    def clean_zip_tail(zip_data):
+        """清理ZIP数据尾部的垃圾"""
+        try:
+            eocd_signature = b'\x50\x4B\x05\x06'
+            
+            for i in range(len(zip_data) - 22, -1, -1):
+                if zip_data[i:i+4] == eocd_signature:
+                    comment_len = struct.unpack('<H', zip_data[i+20:i+22])[0]
+                    eocd_end = i + 22 + comment_len
+                    if eocd_end <= len(zip_data):
+                        return zip_data[:eocd_end]
+            
+            return zip_data
+        except:
+            return zip_data
+
+    def extract_zip_to_directory(zip_data, output_dir, password_list, log_func):
+        """将ZIP数据解压到目录"""
+        import tempfile
+        
+        temp_zip_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
+                temp_zip_path = temp_file.name
+                temp_file.write(zip_data)
+            
+            for password in password_list:
+                try:
+                    # 尝试pyzipper
+                    try:
+                        import pyzipper
+                        with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
+                            if password:
+                                zip_file.setpassword(password.encode())
+                            
+                            for name in zip_file.namelist():
+                                clean_name = sanitize_path(name)
+                                if not clean_name:
+                                    continue
+                                
+                                output_path = os.path.join(output_dir, clean_name)
+                                
+                                if name.endswith('/'):
+                                    os.makedirs(output_path, exist_ok=True)
+                                    continue
+                                
+                                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                
+                                with zip_file.open(name) as source:
+                                    with open(output_path, 'wb') as target:
+                                        while True:
+                                            chunk = source.read(8192)
+                                            if not chunk:
+                                                break
+                                            target.write(chunk)
+                            
+                            log_func(f"解压成功，密码: '{password}' (AES)")
+                            return True
+                            
+                    except:
+                        pass
+                    
+                    # 尝试标准zipfile
+                    import zipfile
+                    with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
+                        if password:
+                            zip_file.setpassword(password.encode())
+                        
+                        for name in zip_file.namelist():
+                            clean_name = sanitize_path(name)
+                            if not clean_name:
+                                continue
+                            
+                            output_path = os.path.join(output_dir, clean_name)
+                            
+                            if name.endswith('/'):
+                                os.makedirs(output_path, exist_ok=True)
+                                continue
+                            
+                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                            
+                            with zip_file.open(name) as source:
+                                with open(output_path, 'wb') as target:
+                                    while True:
+                                        chunk = source.read(8192)
+                                        if not chunk:
+                                            break
+                                        target.write(chunk)
+                        
+                        log_func(f"解压成功，密码: '{password}' (Standard)")
+                        return True
+                        
+                except Exception as e:
+                    continue
+            
+            log_func("所有密码尝试失败")
+            return False
+            
+        finally:
+            if temp_zip_path and os.path.exists(temp_zip_path):
+                try:
+                    os.unlink(temp_zip_path)
+                except:
+                    pass
+
+    # ZIP文件位于末尾的隐写内容提取（适用于WinRAR）
+    try:
+        file_size = os.path.getsize(file_path)
+        
+        with open(file_path, 'rb') as f:
+            # 从文件的后半部分开始寻找ZIP头
+            search_start = file_size // 2
+            f.seek(search_start)
+            
+            chunk_size = 1024 * 1024
+            zip_start = None
+            
+            while f.tell() < file_size - 4:
+                chunk_start = f.tell()
+                chunk = f.read(chunk_size)
+                
+                if len(chunk) < 4:
+                    break
+                
+                for i in range(len(chunk) - 3):
+                    if chunk[i:i+4] == b'\x50\x4B\x03\x04':
+                        zip_start = chunk_start + i
+                        break
+                
+                if zip_start:
+                    break
+                
+                f.seek(f.tell() - 3)
+            
+            if not zip_start:
+                log_func("未找到ZIP文件头")
+                return False
+            
+            # 提取ZIP数据
+            f.seek(zip_start)
+            zip_data = f.read()
+            
+            # 清理尾部数据
+            zip_data = clean_zip_tail(zip_data)
+            
+            # 解压
+            return extract_zip_to_directory(zip_data, output_dir, password_list, log_func)
+            
+    except Exception as e:
+        log_func(f"简单ZIP提取失败: {e}")
+        return False
+
+
+def extract_with_offset_correction(file_path, output_dir, password_list, log_func):
+    """
+    带偏移量修正的ZIP提取（适用于ZArchiver兼容模式）
+    """
+    try:
+        # 这个方法需要反向修正之前的偏移量调整
+        # 实际上对于ZArchiver模式，我们可能需要特殊处理
+        log_func("ZArchiver模式提取（实验性）...")
+        
+        # 先尝试简单方法
+        return extract_trailing_zip_simple(file_path, output_dir, password_list, log_func)
+        
+    except Exception as e:
+        log_func(f"ZArchiver模式提取失败: {e}")
+        return False
+
 
 def read_mp4_atoms(file_path):
     """读取MP4文件的原子结构，找到ftyp原子的位置和大小"""
@@ -404,6 +741,14 @@ def update_container_atom_offsets(container_data, offset_adjustment):
     
     return bytes(updated_data)
 
+##############################################
+#################工具函数区结束################
+##############################################
+
+
+
+
+
 
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
@@ -419,7 +764,7 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.0 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.3.1 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -437,7 +782,7 @@ class SteganographierGUI:
         print(f"Loaded password from config: '{self.password}'")  # Debug output
 
         self.steganographier = Steganographier(self.video_folder_path, gui_enabled=True)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
-        self.steganographier.set_progress_callback(self.update_progress)        # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层, 从而把逻辑层的进度传回GUI
+        self.steganographier.set_progress_callback(self.update_progress)                     # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层, 从而把逻辑层的进度传回GUI
         self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
         self.steganographier.set_log_callback(self.log)     # log回调函数
 
@@ -450,6 +795,7 @@ class SteganographierGUI:
         params_frame.pack(pady=5)
 
         self.root.title(self.title)
+        self.root.minsize(600, 400)  # 最小宽度600，最小高度400
         try:
             self.root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))  # 设置窗口图标
         except tk.TclError:
@@ -489,8 +835,8 @@ class SteganographierGUI:
         self.type_option_label = tk.Label(params_frame, text="工作模式:")
         self.type_option_label.pack(side=tk.LEFT, padx=5, pady=5)
         self.type_option_var = tk.StringVar(value=self.type_option_var.get())  # 使用加载的配置
-        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv")
-        self.type_option.config(width=4)
+        self.type_option = tk.OptionMenu(params_frame, self.type_option_var, "mp4", "mkv", "mp4(zarchiver)")
+        self.type_option.config(width=12)
         self.type_option.pack(side=tk.LEFT, padx=5, pady=5)
 
         # 输出选项
@@ -1225,6 +1571,11 @@ class Steganographier:
                 # 设置 ZIP 文件的注释
                 zip_file.comment = zip_comment.encode('utf-8')
 
+
+
+
+
+
     def hide_file(self, input_file_path, 
                   cover_video_CLI=None, 
                   password=None, 
@@ -1258,9 +1609,106 @@ class Steganographier:
         processed_size = 0  # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
 
-        try:        
-            # 4.1. 改进的MP4文件隐写逻辑
+        try: 
+            # 4.1. MP4文件隐写逻辑 - WinRAR版本
             if self.type_option_var == 'mp4':
+                output_file = self.get_output_file_path(
+                    input_file_path, output_file_path, processed_files, 
+                    self.output_option, self.output_cover_video_name_mode, cover_video_path
+                )
+                
+                self.log(f"输出文件: {output_file}")
+                
+                # 计算总大小用于进度显示
+                mp4_size = os.path.getsize(cover_video_path)
+                zip_size = os.path.getsize(zip_file_path)
+                estimated_random_size = 1024 * 20
+                total_size_hidden = mp4_size + zip_size + estimated_random_size
+                processed_size = 0
+                
+                with open(cover_video_path, "rb") as cover_file:
+                    with open(zip_file_path, "rb") as zip_file:
+                        with open(output_file, "wb") as output:
+                            
+                            self.log(f"开始隐写: {input_file_path}")
+                            
+                            # 步骤1: 写入完整的MP4数据
+                            self.log("写入MP4数据...")
+                            for chunk in self.read_in_chunks(cover_file):
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                if self.progress_callback:
+                                    self.progress_callback(processed_size, total_size_hidden)
+                            
+                            mp4_end_pos = output.tell()
+                            self.log(f"MP4数据结束位置: {mp4_end_pos}")
+                            
+                            # 步骤2: 直接附加原始ZIP数据（不修改偏移量）
+                            self.log("写入原始ZIP数据...")
+                            
+                            for chunk in self.read_in_chunks(zip_file):
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                if self.progress_callback:
+                                    self.progress_callback(processed_size, total_size_hidden)
+                            
+                            zip_end_pos = output.tell()
+                            self.log(f"ZIP数据位置: {mp4_end_pos} - {zip_end_pos}")
+                            
+                            # 步骤3: 添加随机化数据
+                            self.log("添加随机化数据...")
+                            add_randomization_data(output)
+                            
+                            final_size = output.tell()
+                            self.log(f"最终文件大小: {final_size} bytes")
+                            
+                            self.log("通用兼容隐写完成 - 保持原生ZIP结构")
+
+            # 4.2. 隐写mkv文件的逻辑
+            elif self.type_option_var == 'mkv':
+                # 指定输出文件名
+                output_file = self.get_output_file_path(input_file_path, 
+                                                        output_file_path, 
+                                                        processed_files, 
+                                                        self.output_option, 
+                                                        self.output_cover_video_name_mode,
+                                                        cover_video_path)
+                
+                # 生成末尾随机字节
+                random_data_path = f"temp_{generate_random_filename(length=16)}"
+                try:
+                    with open(random_data_path, "wb") as f:
+                        random_bytes = os.urandom(1024*8)  # 8kb
+                        f.write(random_bytes)
+
+                    self.log(f"Output file: {output_file}")
+                    cmd = [
+                        self.mkvmerge_exe, '-o',
+                        output_file, cover_video_path,
+                        '--attach-file', zip_file_path,
+                        '--attach-file', random_data_path,
+                    ]
+                    self.log(f"Hiding file: {input_file_path}")
+                    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+                    
+                    # 删除临时随机字节
+                    os.remove(random_data_path)
+
+                    if result.returncode != 0:
+                        raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
+
+                except subprocess.CalledProcessError as cpe:
+                    self.log(f"隐写时发生错误: {str(cpe)}")
+                    self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
+                    self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
+                    raise
+
+                except Exception as e:
+                    self.log(f"在执行mkvmerge时发生未预料的错误: {str(e)}")
+                    raise
+
+            # 4.3. 适用于 zarchiver 的 MP4文件隐写逻辑
+            elif self.type_option_var == 'mp4(zarchiver)':
                 # 指定输出文件名
                 output_file = self.get_output_file_path(input_file_path, 
                                                         output_file_path, 
@@ -1360,52 +1808,34 @@ class Steganographier:
                                 
                                 pos += size
                             
+                                                        # 4. 添加随机压缩文件特征码（哈希随机化处理）
+                                head_signatures = {
+                                    "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
+                                    "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
+                                    "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
+                                    "ZIP":   b'\x50\x4B\x03\x04',
+                                    "GZIP":  b'\x1F\x8B',
+                                    "BZIP2": b'\x42\x5A\x68',
+                                    "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
+                                }
+
+                                # 添加第一个随机压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(5, 10))  # 5KB - 10KB 的随机字节
+                                output.write(random.choice(list(head_signatures.values())))  # 随机压缩文件特征码
+                                output.write(random_bytes)
+
+                                # 添加第二个随机压缩文件特征码
+                                output.write(random.choice(list(head_signatures.values())))  # 第二个压缩文件特征码
+                                random_bytes = os.urandom(1024 * random.randint(5, 10))  # 5KB - 10KB 的随机字节
+                                output.write(random_bytes)
+
+                                # 添加 MP4 文件的结尾标记 (空的 "mdat" box)
+                                add_empty_mdat_box(output)
+                                
+                                self.log("MP4隐写完成，数据已放置在ftyp后的free原子中，偏移量已更新，已添加哈希随机化")
+                
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
-                    raise
-
-
-            # 4.2. 隐写mkv文件的逻辑
-            elif self.type_option_var == 'mkv':
-                # 指定输出文件名
-                output_file = self.get_output_file_path(input_file_path, 
-                                                        output_file_path, 
-                                                        processed_files, 
-                                                        self.output_option, 
-                                                        self.output_cover_video_name_mode,
-                                                        cover_video_path)
-                
-                # 生成末尾随机字节
-                random_data_path = f"temp_{generate_random_filename(length=16)}"
-                try:
-                    with open(random_data_path, "wb") as f:
-                        random_bytes = os.urandom(1024*8)  # 8kb
-                        f.write(random_bytes)
-
-                    self.log(f"Output file: {output_file}")
-                    cmd = [
-                        self.mkvmerge_exe, '-o',
-                        output_file, cover_video_path,
-                        '--attach-file', zip_file_path,
-                        '--attach-file', random_data_path,
-                    ]
-                    self.log(f"Hiding file: {input_file_path}")
-                    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
-                    
-                    # 删除临时随机字节
-                    os.remove(random_data_path)
-
-                    if result.returncode != 0:
-                        raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
-
-                except subprocess.CalledProcessError as cpe:
-                    self.log(f"隐写时发生错误: {str(cpe)}")
-                    self.log(f'CalledProcessError output：{cpe.output}') if cpe.output else None
-                    self.log(f'CalledProcessError stderr：{cpe.stderr}') if cpe.stderr else None
-                    raise
-
-                except Exception as e:
-                    self.log(f"在执行mkvmerge时发生未预料的错误: {str(e)}")
                     raise
 
         except Exception as e:
@@ -1417,21 +1847,30 @@ class Steganographier:
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
 
+
+
+
+
+
     # 隐写时指定输出文件名+路径的方法
     def get_output_file_path(self, input_file_path=None, 
-                             output_file_path=None, 
-                             processed_files=0, 
-                             output_option=None, 
-                             output_cover_video_name_mode=None,
-                             cover_video_path=None,
-                             ):
+                            output_file_path=None, 
+                            processed_files=0, 
+                            output_option=None, 
+                            output_cover_video_name_mode=None,
+                            cover_video_path=None):
+        """
+        输出文件路径生成方法，支持新的类型选项
+        """
 
         # 输出文件名指定
         if output_file_path:
             return output_file_path # 如果指定了输出文件名就用输出文件名（CLI模式）
 
         print(f'type option: {self.type_option_var}')
-        if self.type_option_var == 'mp4':
+        
+        # 支持 mp4 和 mp4(zarchiver) 两种模式
+        if self.type_option_var in ['mp4', 'mp4(zarchiver)']:
             print(f'input_file_path: {input_file_path}')
             print(f'cover_video_path: {cover_video_path}')
 
@@ -1452,7 +1891,6 @@ class Steganographier:
             print(f"output_file_path: {output_file_path}\n")    
         
         elif self.type_option_var == 'mkv':
-
             # 输出文件名选择
             print(f'output_option: {output_option}')
             if output_option == '原文件名':
@@ -1469,7 +1907,7 @@ class Steganographier:
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mkv')
             print(f"output_file_path: {output_file_path}\n")    
         
-        return output_file_path    
+        return output_file_path  
     
     # 解除隐写部分
 
@@ -1748,70 +2186,58 @@ class Steganographier:
 
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
         """
-        改进的解除隐写函数，兼容多版本MP4隐写文件
+        支持ZArchiver模式的解除隐写函数
         """
         self.type_option_var = type_option_var
 
         self.log(f"开始解除隐写: {input_file_path}")
-        self.log(f"用户提供的密码: {password}")
+        self.log(f"模式: {type_option_var}")
 
         # 准备密码列表
         password_list = []
         if password:
             password_list.append(password)
         password_list.extend(self.passwords)
-        if '' not in password_list:  # 确保包含空密码
+        if '' not in password_list:
             password_list.append('')
 
-        if self.type_option_var == 'mp4':
-            # 检测隐写方法
-            method = self.detect_mp4_steganography_method(input_file_path)
-            self.log(f"检测到的隐写方法: {method}")
-            
+        # 处理MP4类型（包括普通mp4和zarchiver模式）
+        if self.type_option_var in ['mp4', 'mp4(zarchiver)']:
             output_dir = os.path.dirname(input_file_path)
             success = False
-            message = ""
             
-            if method == 'free':
-                # 尝试新版本方法（free原子）
-                self.log("尝试从free原子提取数据...")
-                success, message = self.extract_from_free_atom(input_file_path, output_dir, password_list)
+            if self.type_option_var == 'mp4':
+                # 普通MP4模式：尝试文件末尾提取
+                self.log("尝试文件末尾ZIP提取（WinRAR兼容）...")
+                success = extract_trailing_zip_simple(input_file_path, output_dir, password_list, self.log)
                 
-            elif method == 'moov':
-                # 尝试旧版本方法（文件末尾）
-                self.log("尝试从文件末尾提取数据...")
-                success, message = self.extract_from_moov_method(input_file_path, output_dir, password_list)
+            elif self.type_option_var == 'mp4(zarchiver)':
+                # ZArchiver模式：尝试修正偏移量后的提取
+                self.log("尝试修正偏移量的ZIP提取（ZArchiver兼容）...")
+                success = extract_with_offset_correction(input_file_path, output_dir, password_list, self.log)
+            
+            # 如果主要方法失败，尝试其他方法
+            if not success:
+                self.log("主要方法失败，尝试其他解压方法...")
                 
-            elif method == 'unknown' or method == 'none':
-                # 未知方法，尝试所有方法
-                self.log("未知隐写方法，尝试所有提取方法...")
-                
-                # 先尝试free原子方法
-                success, message = self.extract_from_free_atom(input_file_path, output_dir, password_list)
-                
-                if not success:
-                    self.log("free原子方法失败，尝试文件末尾方法...")
-                    success, message = self.extract_from_moov_method(input_file_path, output_dir, password_list)
-                
-                if not success:
-                    # 最后尝试直接作为ZIP文件处理
-                    self.log("尝试直接作为ZIP文件处理...")
-                    try:
-                        with open(input_file_path, 'rb') as f:
-                            file_data = f.read()
-                        success, message = self.extract_zip_data(file_data, output_dir, password_list)
-                    except Exception as e:
-                        message = f"直接ZIP处理失败: {e}"
+                # 尝试free原子方法
+                success, message = extract_from_free_atom(input_file_path, output_dir, password_list)
+                if success:
+                    self.log(f"free原子方法成功: {message}")
+                else:
+                    # 尝试通用方法
+                    success = extract_trailing_zip_simple(input_file_path, output_dir, password_list, self.log)
+                    if success:
+                        self.log("通用方法成功")
             
             if success:
-                self.log(f"解除隐写成功: {message}")
                 try:
                     os.remove(input_file_path)
                     self.log("原始隐写文件已删除")
                 except Exception as e:
                     self.log(f"删除原始文件时出错: {e}")
             else:
-                self.log(f"解除隐写失败: {message}")
+                self.log("所有解压方法都失败了")
                 
         elif self.type_option_var == 'mkv':
             # 获取mkv附件id函数
