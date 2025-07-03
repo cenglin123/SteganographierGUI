@@ -1,21 +1,113 @@
 # SteganographierGUI
 将文件隐写进MP4/MKV文件中
 
+请确保在理解“**后缀名**”这个词含义的前提下观看以下教程，如不理解，请首先搜索“[**如何改后缀名**](https://cn.bing.com/search?q=%E5%A6%82%E4%BD%95%E6%94%B9%E6%96%87%E4%BB%B6%E5%90%8E%E7%BC%80%E5%90%8D)”
+
+如果改了后缀还是为 MP4 ，那说明没有开启后缀名显示，请依然搜索上述内容
+
+解压不了(|怎么是视频|密码错误|文件损坏|需要分卷|等)
+
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+
+WinRAR分享提取码c9ar
+
+**其他解除隐写方法（根据自己所用的解压软件对号入座）**
+
+**1.** [**WinRAR6**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar)  (提取码c9ar)**（注意不能是WinRAR5）：**
+
+   1.1. 对于 MP4 隐写文件，直接改后缀名为 **.zip** 即可解压（必须是 **zip**，不是 rar 也不是 7z 或者别的）
+   1.2. 对于 MKV 隐写文件，改后缀名后，【工具-修复压缩文件】，然后再解压。
+
+![117c966dac71fd2b968b0b31bd6f2551.webp](https://file.cangku.moe/images/117c966dac71fd2b968b0b31bd6f2551.webp)
+
+  
+
+**2.** [**7-zip**](https://sparanoid.com/lab/7z/)**：**
+
+   2.1. MP4隐写文件先修改后缀名，然后右键点击文件，用 **#号模式** 打开压缩包，解压 **2.zip** 即可，如下图：
+
+![fac85bc467296f3e462e8389413be4ec.webp](https://file.cangku.moe/images/fac85bc467296f3e462e8389413be4ec.webp)
+
+![e2980c285a62a1bdb438f36b14c9374b.webp](https://file.cangku.moe/images/e2980c285a62a1bdb438f36b14c9374b.webp)
+
+    2.2. MKV隐写文件同上，用 **#号模式** 打开压缩包，即可解压。
+    2.3 使用命令行解压（-i!*.zip 表示仅解压.zip部分，通过此法解压出的压缩包文件名为 "2.zip"）
+
+windows
+```
+7z x -t# "D:\TEMP\测试_hidden.mp4" -o"D:\TEMP" -i!*.zip
+```
+
+linux
+```
+7za x -t# "/tmp/测试_hidden.mp4" -o"/tmp" -i'!*.zip'
+```
+[下载地址](https://sparanoid.com/lab/7z/)
+
+注：7zip 及 Bandizip 不能解压使用汉字作为密码的隐写文件（WinRAR 可以），如果仍想解压需要一些操作，请参考下面的内容
+
+[collapse title="bandizip 和 7zip 解压用中文密码隐写文件的方法"]
+
+因为编码问题，bandizip 和 7zip 不能直接解压用汉字做密码的隐写文件，因为汉字用了 GBK 编码。而解压时，这 2 个解压软件默认用的是 UFT-8 编码，编码方法不一样所以会报密码错误。  
+  
+但是仍然有一种办法可以得到正确的密码，如前所述，错误的原因是 bandizip 和 7zip 解码只认 UTF-8，所以只需要把 GBK 下密码强行用 UTF-8 进行编码就可以了，这样解密的时候能保证编解码匹配。  
+  
+比如密码为：某不知名网友分享  
+用 UTF-8 强行编码的结果为：鏌愪笉鐭ュ悕缃戝弸鍒嗕韩  
+  
+用这个看似乱码的密码去解压就可以了。  
+  
+可以在这个网址【請輸入亂碼文字：】输入汉字，然后转换为 utf-8  
+[https://www.ifreesite.com/textconvert.htm](https://www.ifreesite.com/textconvert.htm)
+
+![](https://file.cangku.moe/images/bcaea65da35eee77ba4bb6db081a3946.webp)
+
+如果使用 notepad++ 也可以使用编码转换功能，如下图  
+
+![](https://file.cangku.moe/images/9b481fda64754402f8271d7f1cad143c.webp)  
+
+[/collapse]
+
+
+**3.** [**Bandizip**](https://wwmh.lanzoul.com/b004i2rk4h?pwd=5avf)：
+
+实测 **7.36 版本以上**的 Bandizip 直接修改两种隐写文件后缀即可解压（较低版本解压会提示需要分卷），[下载地址](https://wwmh.lanzoul.com/b004i2rk4h?pwd=5avf) 提取码5avf
+
+注：7zip 及 Bandizip 不能直接解压使用汉字作为密码的隐写文件（WinRAR 可以），如果仍想解压需要一些操作。
+
+因为编码问题，bandizip 和 7zip 不能直接解压用汉字做密码的隐写文件，因为汉字用了 GBK 编码。而解压时，这 2 个解压软件默认用的是 UFT-8 编码，编码方法不一样所以会报密码错误。
+
+Bandizip 可以在代码页面修改编码方式为 UTF-8 来解决，如下图：
+
+![PixPin_2025-05-30_00-08-15.jpg](https://pic.cangku.moe/images/2025/06/15/1crQh.jpg)
+
+
+更多方法请参考 7-zip 部分的内容
+
+
+**4. 手机**：
+
+   **4.1. 【安卓】RAR**：用法和WinRAR相同，[下载地址](https://apkpure.com/rar-extractor-manager/com.rarlab.rar/download/7.01.build123)
+   **4.2.** **【苹果】解压专家**：用法和WinRAR相同：[下载地址](https://apps.apple.com/cn/app/%E8%A7%A3%E5%8E%8B%E4%B8%93%E5%AE%B6-dzip-zip-rar-7z-%E5%BF%AB%E9%80%9F%E8%A7%A3%E5%8E%8B%E5%92%8C%E5%8E%8B%E7%BC%A9/id1400133654)
+
+
+**5. 其余解压软件正在测试中，暂时未找到100%稳定的方法**
+
+   5.1 **zarchiver**：修改后缀为zip后可以解压 MKV 隐写文件，但是无法解压 MP4 隐写文件
+
+  
+**6**. 尝试以上方法都无法解压，也可以采用本程序的解除隐写功能解压。
+
 
 ## 更新
 
 **2025/06/28 更新 1.3.1 版本**
 
 新增工作模式 mp4(zarchiver) ，此模式生成的隐写文件可以被 zarchiver 及 [解TMD压](https://cangku.moe/archives/216302) 等从开头扫描压缩文件的解压软件解压，但是无法被从尾部扫描压缩包的 WinRAR 解压，可根据情况使用。
-
-**2025/06/27 关于 1.3.0 版本 WinRAR 解压损坏的问题：**
-
-1.3.0 版尝试适配 zarchiver，但是目前发现 Zarchiver 和 WinRAR 只能兼容其中之一，因为此二者读文件一个从开头读一个从结尾读，把隐写内容放到前面则 zarchiver 不能读，把隐写内容放到后面则 WinRAR 不能读，无法兼容。鉴于目前 WinRAR 已经比较普及了，GitHub release 中更新了 1.3.0.1 版本，隐写方法回退，只修改视频选择栏样式，关于 zarchiver 还需要想其他办法。
-https://github.com/cenglin123/SteganographierGUI/releases/tag/v1.3.0
-
-**2025/06/27 更新 v1.3.0**
-
-修改外壳视频下拉选择框的样式，可用鼠标滚动切换外壳视频。
 
 ---
 
