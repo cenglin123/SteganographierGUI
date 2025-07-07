@@ -987,7 +987,7 @@ def extract_from_free_atom(file_path, output_dir, password_list):
             hidden_data = f.read(target_free['size'] - target_free['header_size'])
         
         # 尝试解压数据
-        return self.extract_zip_data(hidden_data, output_dir, password_list)
+        return extract_zip_data(hidden_data, output_dir, password_list)
         
     except Exception as e:
         return False, f"从free原子提取数据时出错: {e}"
@@ -1020,7 +1020,7 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.1 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.3.2 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -1183,30 +1183,6 @@ class SteganographierGUI:
 
         self.video_option_combobox.bind("<<ComboboxSelected>>", on_video_selection_change)
 
-        ## 更新视频选项列表
-        def update_video_options(self):
-            """更新视频选择下拉框的选项（在 select_video_folder 方法中调用）"""
-            if os.path.exists(self.video_folder_path):
-                self.cover_video_options = get_cover_video_files_info(self.video_folder_path)
-            else:
-                self.cover_video_options = []
-            
-            # 更新下拉框选项
-            video_options = (self.cover_video_options + 
-                            ['===============随机选择模式===============', 
-                            '===============时长顺序模式===============',
-                            '===============名称顺序模式==============='])
-            
-            self.video_option_combobox['values'] = video_options
-            
-            # 重新设置默认值
-            if self.cover_video_options:
-                self.output_cover_video_name_mode_var.set(self.cover_video_options[0])
-                self.video_tooltip.update_text(self.cover_video_options[0])
-            else:
-                self.output_cover_video_name_mode_var.set("No videos found")
-                self.video_tooltip.update_text("No videos found")
-
         
         # 1.4 log文本框和滚动条
         log_frame = tk.Frame(self.root)
@@ -1250,6 +1226,31 @@ class SteganographierGUI:
         self.progress.pack(pady=10)
         
         self.root.mainloop()
+
+    ## 更新视频选项列表
+    def update_video_options(self):
+        """更新视频选择下拉框的选项（在 select_video_folder 方法中调用）"""
+        if os.path.exists(self.video_folder_path):
+            self.cover_video_options = get_cover_video_files_info(self.video_folder_path)
+        else:
+            self.cover_video_options = []
+        
+        # 更新下拉框选项
+        video_options = (self.cover_video_options + 
+                        ['===============随机选择模式===============', 
+                        '===============时长顺序模式===============',
+                        '===============名称顺序模式==============='])
+        
+        self.video_option_combobox['values'] = video_options
+        
+        # 重新设置默认值
+        if self.cover_video_options:
+            self.output_cover_video_name_mode_var.set(self.cover_video_options[0])
+            self.video_tooltip.update_text(self.cover_video_options[0])
+        else:
+            self.output_cover_video_name_mode_var.set("No videos found")
+            self.video_tooltip.update_text("No videos found")
+
 
     # 2. 被隐写文件的拖入方法
     def hide_files_dropped(self, event):
@@ -1325,25 +1326,12 @@ class SteganographierGUI:
             self.video_folder_entry.insert(0, folder_path)
             self.update_video_folder_path(folder_path)  # 调用方法更新video_folder_path
             
-            # 4.a.1 更新外壳MP4视频文件列表和信息
-            self.cover_video_options = get_cover_video_files_info(self.video_folder_path)         
-            self.cover_video_options +=  ['===============随机选择模式===============', 
-                                            '===============时长顺序模式===============', 
-                                            '===============名称顺序模式===============']
+            # 检查文件夹是否包含MP4文件
             if not [item for item in os.listdir(self.video_folder_path) if item.lower().endswith('.mp4')]:
                 messagebox.showwarning("Warning", "文件夹下没有MP4文件, 请添加文件后继续.")
-                self.output_cover_video_name_mode_var.set("No videos found")
-                self.video_option_menu['menu'].delete(0, 'end')
-                return
-
-            self.output_cover_video_name_mode_var.set(self.cover_video_options[0]) # 默认选择第一个文件
-            # self.output_cover_video_name_mode_var.set('===============名称顺序模式===============')
-            self.video_option_menu['menu'].delete(0, 'end')
-            for option in self.cover_video_options:
-                self.video_option_menu['menu'].add_command(label=option, 
-                                                            command=tk._setit(self.output_cover_video_name_mode_var, option))
-        # 更新视频选项
-        self.update_video_options()
+            
+            # 更新视频选项列表
+            self.update_video_options()
 
     # 检查mkv工具是否缺失
     def check_mkvtools_existence(self):
