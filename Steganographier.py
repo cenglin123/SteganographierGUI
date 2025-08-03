@@ -138,6 +138,7 @@ def sanitize_path(path: str) -> str:
         path = name[:255-len(ext)] + ext
     
     return path
+    
 def generate_random_filename(length=16):
     """生成指定长度的随机文件名, 不带扩展名"""
     chars = string.ascii_letters + string.digits
@@ -1732,8 +1733,8 @@ class Steganographier:
                 random.shuffle(file_list)
 
                 for file_full_path, arcname in file_list:
-                    # 随机选择压缩方法
-                    compress_type = random.choice([pyzipper.ZIP_DEFLATED, pyzipper.ZIP_STORED])
+                    # 选择压缩方法为仅存储加快效率
+                    compress_type = random.choice([pyzipper.ZIP_STORED]) # pyzipper.ZIP_DEFLATED
 
                     # 将文件写入 ZIP 存档
                     zip_file.write(file_full_path, arcname=arcname, compress_type=compress_type)
