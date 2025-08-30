@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import unicodedata
 import struct
+import webbrowser
 
 
 
@@ -87,10 +88,229 @@ class ToolTip:
 
 
 
+# 密码编辑器类
+class PasswordEditor:
+    def __init__(self, parent, password_file_path):
+        self.parent = parent
+        self.password_file_path = password_file_path
+        self.window = tk.Toplevel(parent)
+        self.window.title("密码本编辑器")
+        self.window.geometry("500x650")
+        self.window.resizable(True, True)
+        
+        # 设置窗口图标（如果存在）
+        try:
+            self.window.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))
+        except tk.TclError:
+            pass
+        
+        self.create_widgets()
+        self.load_passwords()
+        
+        # 设置窗口关闭时的处理
+        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def create_widgets(self):
+        """创建编辑器界面"""
+        # 主框架
+        main_frame = tk.Frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # # 标题标签
+        # title_label = tk.Label(main_frame, text="密码本编辑器")
+        # title_label.pack(pady=(0, 10))
+        
+        # 说明标签
+        info_label = tk.Label(main_frame, text="每行一个密码，解除隐写时会按顺序尝试这些密码", fg="grey")
+        info_label.pack(pady=(0, 10))
+        
+        # 文本编辑区域框架
+        text_frame = tk.Frame(main_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 创建滚动条
+        scrollbar_y = tk.Scrollbar(text_frame)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        scrollbar_x = tk.Scrollbar(text_frame, orient=tk.HORIZONTAL)
+        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # 创建文本编辑框
+        self.text_area = tk.Text(text_frame, 
+                                wrap=tk.NONE,
+                                yscrollcommand=scrollbar_y.set,
+                                xscrollcommand=scrollbar_x.set,
+                                font=("Consolas", 10),
+                                relief=tk.GROOVE,
+                                borderwidth=2)
+        self.text_area.pack(fill=tk.BOTH, expand=True)
+        
+        # 配置滚动条
+        scrollbar_y.config(command=self.text_area.yview)
+        scrollbar_x.config(command=self.text_area.xview)
+        
+        # 按钮框架
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 重新读取按钮
+        self.reload_button = tk.Button(button_frame, 
+                                      text="重新读取", 
+                                      command=self.load_passwords,
+                                      width=12, 
+                                      height=1,
+                                      bg="#f0f0f0")
+        self.reload_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 保存按钮
+        self.save_button = tk.Button(button_frame, 
+                                    text="保存", 
+                                    command=self.save_passwords,
+                                    width=12, 
+                                    height=1,
+                                    bg="#e1f5fe")
+        self.save_button.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 状态标签
+        self.status_label = tk.Label(main_frame, text="", fg="green")
+        self.status_label.pack(pady=(10, 0))
+        
+        # 统计标签
+        self.stats_label = tk.Label(main_frame, text="", fg="blue")
+        self.stats_label.pack()
+        
+        # 绑定文本变化事件来更新统计
+        self.text_area.bind('<KeyRelease>', self.update_stats)
+        self.text_area.bind('<Button-1>', self.update_stats)
+        
+    def load_passwords(self):
+        """从文件加载密码"""
+        try:
+            # 清空文本区域
+            self.text_area.delete('1.0', tk.END)
+            
+            # 检查文件是否存在
+            if not os.path.exists(self.password_file_path):
+                # 如果文件不存在，创建空文件
+                os.makedirs(os.path.dirname(self.password_file_path), exist_ok=True)
+                with open(self.password_file_path, 'w', encoding='utf-8') as f:
+                    f.write("")
+                self.show_status("文件不存在，已创建空的密码本文件", "orange")
+                return
+            
+            # 读取文件内容
+            with open(self.password_file_path, 'r', encoding='utf-8-sig') as f:
+                content = f.read()
+            
+            # 显示内容
+            self.text_area.insert('1.0', content)
+            
+            # 更新状态和统计
+            self.show_status("密码本加载成功", "green")
+            self.update_stats()
+            
+        except Exception as e:
+            self.show_status(f"加载失败: {str(e)}", "red")
+            
+    def save_passwords(self):
+        """保存密码到文件"""
+        try:
+            # 获取文本内容
+            content = self.text_area.get('1.0', tk.END)
+            
+            # 去除末尾的换行符
+            if content.endswith('\n'):
+                content = content[:-1]
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.password_file_path), exist_ok=True)
+            
+            # 保存文件
+            with open(self.password_file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.show_status("密码本保存成功", "green")
+            self.update_stats()
+            
+        except Exception as e:
+            self.show_status(f"保存失败: {str(e)}", "red")
+            
+    def update_stats(self, event=None):
+        """更新密码统计信息"""
+        try:
+            content = self.text_area.get('1.0', tk.END)
+            lines = content.strip().split('\n') if content.strip() else []
+            
+            # 过滤空行
+            non_empty_lines = [line for line in lines if line.strip()]
+            
+            total_passwords = len(non_empty_lines)
+            total_lines = len(lines)
+            
+            # 计算密码长度统计
+            if non_empty_lines:
+                lengths = [len(line.strip()) for line in non_empty_lines]
+                avg_length = sum(lengths) / len(lengths)
+                min_length = min(lengths)
+                max_length = max(lengths)
+                
+                stats_text = (f"密码数量: {total_passwords} | "
+                            f"总行数: {total_lines} | "
+                            f"长度: {min_length}-{max_length} (平均:{avg_length:.1f})")
+            else:
+                stats_text = "密码数量: 0 | 总行数: 0"
+                
+            self.stats_label.config(text=stats_text)
+            
+        except Exception as e:
+            self.stats_label.config(text="统计信息获取失败")
+            
+    def show_status(self, message, color="black"):
+        """显示状态信息"""
+        self.status_label.config(text=message, fg=color)
+        # 3秒后清除状态信息
+        self.window.after(3000, lambda: self.status_label.config(text=""))
+        
+    def on_closing(self):
+        """窗口关闭时的处理"""
+        # 检查是否有未保存的更改
+        try:
+            current_content = self.text_area.get('1.0', tk.END)
+            if current_content.endswith('\n'):
+                current_content = current_content[:-1]
+            
+            # 读取文件内容进行比较
+            file_content = ""
+            if os.path.exists(self.password_file_path):
+                with open(self.password_file_path, 'r', encoding='utf-8-sig') as f:
+                    file_content = f.read()
+            
+            # 如果内容有变化，询问是否保存
+            if current_content != file_content:
+                result = messagebox.askyesnocancel("未保存的更改", 
+                                                 "密码本有未保存的更改，是否保存？\n\n"
+                                                 "是：保存并关闭\n"
+                                                 "否：不保存直接关闭\n"
+                                                 "取消：返回编辑")
+                if result is True:  # 保存
+                    self.save_passwords()
+                    self.window.destroy()
+                elif result is False:  # 不保存
+                    self.window.destroy()
+                # result is None 表示取消，不做任何操作
+            else:
+                self.window.destroy()
+                
+        except Exception as e:
+            # 如果检查过程出错，直接关闭
+            self.window.destroy()
 
-#####################################
-############## 工具函数区 ############
-#####################################
+
+
+
+########################################
+############## 工具函数区 ###############
+########################################
 
 def sanitize_path(path: str) -> str:
     """
@@ -138,7 +358,7 @@ def sanitize_path(path: str) -> str:
         path = name[:255-len(ext)] + ext
     
     return path
-    
+
 def generate_random_filename(length=16):
     """生成指定长度的随机文件名, 不带扩展名"""
     chars = string.ascii_letters + string.digits
@@ -1208,25 +1428,62 @@ class SteganographierGUI:
         
         # 1.5 控制按钮部分
         button_frame = tk.Frame(self.root)
-        button_frame.pack(pady=10)
+        button_frame.pack(pady=10, fill="x")  # 主框架填满水平空间
         
-        self.start_button = tk.Button(button_frame, text="开始执行", command=self.start_thread, width=12, height=2)
+        # 第一排按钮
+        buttons_row = tk.Frame(button_frame)
+        buttons_row.pack(pady=4)  # 按钮行填满水平空间
+        
+        self.start_button = tk.Button(buttons_row, text="开始执行", command=self.start_thread, width=12, height=2)
         self.start_button.pack(side=tk.LEFT, padx=5)
         
-        self.clear_button = tk.Button(button_frame, text="清除窗口", command=self.clear, width=12, height=2)
+        self.clear_button = tk.Button(buttons_row, text="清除窗口", command=self.clear, width=12, height=2)
         self.clear_button.pack(side=tk.LEFT, padx=5)
 
-        self.start_hash_modifier_button = tk.Button(button_frame, text="哈希修改器", command=self.start_hash_modifier, width=12, height=2)
+        self.start_hash_modifier_button = tk.Button(buttons_row, text="哈希修改器", command=self.start_hash_modifier, width=12, height=2)
         self.start_hash_modifier_button.pack(side=tk.LEFT, padx=5)
         
-        self.start_captcha_generator_button = tk.Button(button_frame, text="验证码生成器", command=self.start_captcha_generator, width=12, height=2)
+        self.start_captcha_generator_button = tk.Button(buttons_row, text="验证码生成器", command=self.start_captcha_generator, width=12, height=2)
         self.start_captcha_generator_button.pack(side=tk.LEFT, padx=5)
+
+        self.open_password_file_button = tk.Button(buttons_row, text="打开密码本", command=self.open_password_file, width=12, height=2)
+        self.open_password_file_button.pack(side=tk.LEFT, padx=5)
+
+
+        # 第二排超链接
+        link_row = ttk.Frame(button_frame)
+        link_row.pack(pady=4)  # 超链接行填满水平空间，与按钮保持间距
+        
+        # 创建超链接标签
+        self.github_link = ttk.Label(
+            link_row, 
+            text="访问本程序 Github",
+            foreground="blue", 
+            cursor="hand2"  # 鼠标悬停时显示手型光标
+        )
+        self.github_link.pack(anchor="e", padx=30)  # 靠右对齐
+
+        # 绑定点击事件
+        self.github_link.bind("<Button-1>", lambda e: self.open_link("https://github.com/cenglin123/SteganographierGUI"))
+        
+        # 鼠标悬停效果
+        self.github_link.bind("<Enter>", lambda e: self.github_link.config(foreground="purple"))
+        self.github_link.bind("<Leave>", lambda e: self.github_link.config(foreground="blue"))
         
         # 1.6 进度条
         self.progress = ttk.Progressbar(self.root, length=500, mode='determinate')
         self.progress.pack(pady=10)
         
         self.root.mainloop()
+
+    def open_link(self, url):
+        """打开指定的URL链接"""
+        webbrowser.open_new(url)
+
+    def open_password_file(self):
+        """打开密码本编辑器窗口"""
+        password_file_path = os.path.join(application_path, 'modules', 'PW.txt')
+        PasswordEditor(self.root, password_file_path)
 
     ## 更新视频选项列表
     def update_video_options(self):
