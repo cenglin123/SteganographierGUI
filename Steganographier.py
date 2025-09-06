@@ -308,6 +308,152 @@ class PasswordEditor:
 
 
 
+
+class BatchRevealProgressWindow:
+    """
+    批量解除隐写进度窗口
+    """
+    def __init__(self, parent, root_dir, main_app):
+        self.parent = parent
+        self.root_dir = root_dir
+        self.main_app = main_app
+        self.window = None
+        self.progress_var = None
+        self.status_var = None
+        self.detail_var = None
+        self.is_cancelled = False
+        
+    def create_progress_widgets(self):
+        """直接在现有窗口中创建进度控件"""
+        if not self.window:
+            return
+        
+        # 清空窗口内容
+        for widget in self.window.winfo_children():
+            widget.destroy()
+        
+        # 创建主框架
+        main_frame = ttk.Frame(self.window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题标签
+        title_label = ttk.Label(main_frame, text=f"正在处理目录: {self.root_dir}")
+        title_label.pack(pady=(0, 10))
+        
+        # 进度条
+        self.progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(main_frame, 
+                                    variable=self.progress_var, 
+                                    maximum=100, 
+                                    length=400)
+        progress_bar.pack(pady=(0, 10))
+        
+        # 状态标签
+        self.status_var = tk.StringVar()
+        self.status_var.set("正在扫描文件...")
+        status_label = ttk.Label(main_frame, textvariable=self.status_var)
+        status_label.pack(pady=(0, 5))
+        
+        # 详细信息文本框
+        detail_frame = ttk.LabelFrame(main_frame, text="处理详情", padding="5")
+        detail_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        
+        # 创建文本框和滚动条的容器
+        text_container = tk.Frame(detail_frame)
+        text_container.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建文本框 - 关闭自动换行以支持横向滚动
+        self.detail_text = tk.Text(text_container, 
+                                height=8, 
+                                width=60, 
+                                wrap=tk.NONE,  # 关闭自动换行
+                                )
+        
+        # 创建垂直滚动条
+        v_scrollbar = ttk.Scrollbar(text_container, orient="vertical", command=self.detail_text.yview)
+        self.detail_text.configure(yscrollcommand=v_scrollbar.set)
+        
+        # 创建横向滚动条
+        h_scrollbar = ttk.Scrollbar(text_container, orient="horizontal", command=self.detail_text.xview)
+        self.detail_text.configure(xscrollcommand=h_scrollbar.set)
+        
+        # 布局文本框和滚动条
+        self.detail_text.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # 配置grid权重
+        text_container.grid_rowconfigure(0, weight=1)
+        text_container.grid_columnconfigure(0, weight=1)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 取消按钮
+        self.cancel_button = ttk.Button(button_frame, text="取消", 
+                                    command=self.cancel_processing)
+        self.cancel_button.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # 关闭按钮（初始隐藏）
+        self.close_button = ttk.Button(button_frame, text="关闭", 
+                                    command=self.close_window)
+
+    def update_progress(self, current, total, current_file=""):
+        """更新进度"""
+        if self.window and not self.is_cancelled:
+            progress = (current / total) * 100 if total > 0 else 0
+            self.progress_var.set(progress)
+            
+            if current_file:
+                self.status_var.set(f"处理中: {os.path.basename(current_file)} ({current}/{total})")
+            else:
+                self.status_var.set(f"进度: {current}/{total}")
+                
+            self.window.update_idletasks()
+    
+    def add_detail(self, message):
+        """添加详细信息"""
+        if self.window and not self.is_cancelled:
+            self.detail_text.insert(tk.END, message + "\n")
+            self.detail_text.see(tk.END)
+            self.window.update_idletasks()
+    
+    def processing_complete(self, success_count, total_count):
+        """处理完成"""
+        if self.window:
+            self.progress_var.set(100)
+            self.status_var.set(f"处理完成: 成功 {success_count}/{total_count} 个文件")
+            
+            # 隐藏取消按钮，显示关闭按钮
+            self.cancel_button.pack_forget()
+            self.close_button.pack(side=tk.RIGHT, padx=(10, 0))
+            
+            self.add_detail(f"\n=== 批量处理完成 ===")
+            self.add_detail(f"总计处理: {total_count} 个文件")
+            self.add_detail(f"成功: {success_count} 个文件")
+            self.add_detail(f"失败: {total_count - success_count} 个文件")
+            
+            self.window.update_idletasks()
+    
+    def cancel_processing(self):
+        """取消处理"""
+        self.is_cancelled = True
+        self.status_var.set("正在取消...")
+        self.add_detail("用户取消了批量处理")
+        
+    def close_window(self):
+        """关闭窗口"""
+        if self.window:
+            self.window.destroy()
+            
+    def on_window_close(self):
+        """窗口关闭事件处理"""
+        self.is_cancelled = True
+        self.close_window()
+
+
+
 ########################################
 ############## 工具函数区 ###############
 ########################################
@@ -462,762 +608,6 @@ def check_size_and_duration(size, duration_seconds):
         return False
     return True
 
-def add_empty_mdat_box(file):
-    mdat_size = 8  # Minimum box size
-    mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
-    file.write(mdat_box)
-
-def add_randomization_data(file_obj):
-    """
-    添加随机化数据进行哈希混淆
-    """
-    head_signatures = {
-        "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
-        "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
-        "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
-        "ZIP":   b'\x50\x4B\x03\x04',
-        "GZIP":  b'\x1F\x8B',
-        "BZIP2": b'\x42\x5A\x68',
-        "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
-    }
-    
-    # 添加2组随机化数据
-    for i in range(2):
-        signature = random.choice(list(head_signatures.values()))
-        file_obj.write(signature)
-        
-        random_size = 1024 * random.randint(5, 10)
-        random_bytes = os.urandom(random_size)
-        file_obj.write(random_bytes)
-    
-    # 添加MP4结尾标记
-    mdat_size = 8
-    mdat_box = struct.pack('>I4s', mdat_size, b'mdat')
-    file_obj.write(mdat_box)
-
-def fix_zip_offsets_in_file(file_path, zip_start_offset):
-    """
-    在文件写入完成后修正ZIP的偏移量
-    """
-    def find_eocd_position(file_obj):
-        """
-        在文件中找到EOCD记录的位置
-        """
-        current_pos = file_obj.tell()
-        file_size = file_obj.seek(0, 2)  # 获取文件大小
-        
-        # 从文件末尾开始搜索EOCD签名
-        max_comment_size = 65535  # ZIP注释的最大长度
-        search_size = min(max_comment_size + 22, file_size)  # 22是EOCD记录的最小长度
-        
-        file_obj.seek(file_size - search_size)
-        data = file_obj.read(search_size)
-        
-        # 从后往前搜索EOCD签名 0x504B0506
-        eocd_signature = b'\x50\x4B\x05\x06'
-        
-        for i in range(len(data) - 4, -1, -1):
-            if data[i:i+4] == eocd_signature:
-                # 验证这是一个有效的EOCD记录
-                if i + 22 <= len(data):  # 确保有足够的数据
-                    eocd_pos = file_size - search_size + i
-                    file_obj.seek(current_pos)
-                    return eocd_pos
-        
-        file_obj.seek(current_pos)
-        return None
-
-    def fix_eocd_offsets(file_obj, eocd_pos, zip_start_offset):
-        """
-        修正EOCD记录中的偏移量
-        """
-        try:
-            # 读取当前的中央目录偏移量
-            file_obj.seek(eocd_pos + 16)
-            old_offset_bytes = file_obj.read(4)
-            old_offset = struct.unpack('<I', old_offset_bytes)[0]
-            
-            # 计算新的偏移量
-            new_offset = old_offset + zip_start_offset
-            
-            # 写入修正后的偏移量
-            file_obj.seek(eocd_pos + 16)
-            file_obj.write(struct.pack('<I', new_offset))
-            
-            return True
-            
-        except Exception as e:
-            print(f"修正EOCD偏移量时出错: {e}")
-            return False
-
-    def fix_central_directory_offsets(file_obj, cd_start_pos, cd_size, zip_start_offset):
-        """
-        修正中央目录中每个文件记录的本地文件头偏移量
-        """
-        try:
-            file_obj.seek(cd_start_pos)
-            pos = 0
-            
-            while pos < cd_size:
-                # 中央目录文件头签名
-                signature = file_obj.read(4)
-                if signature != b'\x50\x4B\x01\x02':
-                    break
-                
-                # 跳过大部分字段到达偏移量位置
-                file_obj.seek(file_obj.tell() + 24)  # 跳过24个字节
-                
-                # 读取文件名长度、扩展字段长度、注释长度
-                name_len, extra_len, comment_len = struct.unpack('<HHH', file_obj.read(6))
-                
-                # 跳过更多字段到达本地文件头偏移量位置
-                file_obj.seek(file_obj.tell() + 8)
-                
-                # 读取并修正本地文件头偏移量
-                old_offset_bytes = file_obj.read(4)
-                old_offset = struct.unpack('<I', old_offset_bytes)[0]
-                new_offset = old_offset + zip_start_offset
-                
-                # 写入修正后的偏移量
-                file_obj.seek(file_obj.tell() - 4)
-                file_obj.write(struct.pack('<I', new_offset))
-                
-                # 跳过文件名、扩展字段、注释到下一个记录
-                file_obj.seek(file_obj.tell() + name_len + extra_len + comment_len)
-                
-                pos = file_obj.tell() - cd_start_pos
-            
-            return True
-            
-        except Exception as e:
-            print(f"修正中央目录偏移量时出错: {e}")
-            return False
-    
-    # 在文件写入完成后修正ZIP的偏移量
-    try:
-        with open(file_path, "r+b") as f:  # 读写模式打开
-            # 找到EOCD记录
-            eocd_pos = find_eocd_position(f)
-            if eocd_pos:
-                print(f"找到EOCD记录位置: {eocd_pos}")
-                
-                # 修正EOCD中的中央目录偏移量
-                if fix_eocd_offsets(f, eocd_pos, zip_start_offset):
-                    print("EOCD偏移量修正成功")
-                    
-                    # 读取中央目录信息
-                    f.seek(eocd_pos + 12)
-                    cd_size = struct.unpack('<I', f.read(4))[0]
-                    cd_offset = struct.unpack('<I', f.read(4))[0]
-                    
-                    # 修正中央目录中的文件偏移量
-                    if fix_central_directory_offsets(f, cd_offset, cd_size, zip_start_offset):
-                        print("中央目录偏移量修正成功")
-                        return True
-                    else:
-                        print("警告: 中央目录偏移量修正失败")
-                else:
-                    print("警告: EOCD偏移量修正失败")
-            else:
-                print("警告: 未找到EOCD记录")
-                
-        return False
-        
-    except Exception as e:
-        print(f"修正ZIP偏移量时出错: {e}")
-        return False
-
-
-
-def extract_trailing_zip_simple(file_path, output_dir, password_list, log_func):
-    """
-    ZIP文件位于末尾的隐写内容提取（适用于WinRAR）
-    """
-    def clean_zip_tail(zip_data):
-        """清理ZIP数据尾部的垃圾"""
-        try:
-            eocd_signature = b'\x50\x4B\x05\x06'
-            
-            for i in range(len(zip_data) - 22, -1, -1):
-                if zip_data[i:i+4] == eocd_signature:
-                    comment_len = struct.unpack('<H', zip_data[i+20:i+22])[0]
-                    eocd_end = i + 22 + comment_len
-                    if eocd_end <= len(zip_data):
-                        return zip_data[:eocd_end]
-            
-            return zip_data
-        except:
-            return zip_data
-
-    def extract_zip_to_directory(zip_data, output_dir, password_list, log_func):
-        """将ZIP数据解压到目录"""
-        import tempfile
-        
-        temp_zip_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
-                temp_zip_path = temp_file.name
-                temp_file.write(zip_data)
-            
-            for password in password_list:
-                try:
-                    # 尝试pyzipper
-                    try:
-                        import pyzipper
-                        with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
-                            if password:
-                                zip_file.setpassword(password.encode())
-                            
-                            for name in zip_file.namelist():
-                                clean_name = sanitize_path(name)
-                                if not clean_name:
-                                    continue
-                                
-                                output_path = os.path.join(output_dir, clean_name)
-                                
-                                if name.endswith('/'):
-                                    os.makedirs(output_path, exist_ok=True)
-                                    continue
-                                
-                                os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                                
-                                with zip_file.open(name) as source:
-                                    with open(output_path, 'wb') as target:
-                                        while True:
-                                            chunk = source.read(8192)
-                                            if not chunk:
-                                                break
-                                            target.write(chunk)
-                            
-                            log_func(f"解压成功，密码: '{password}' (AES)")
-                            return True
-                            
-                    except:
-                        pass
-                    
-                    # 尝试标准zipfile
-                    import zipfile
-                    with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
-                        if password:
-                            zip_file.setpassword(password.encode())
-                        
-                        for name in zip_file.namelist():
-                            clean_name = sanitize_path(name)
-                            if not clean_name:
-                                continue
-                            
-                            output_path = os.path.join(output_dir, clean_name)
-                            
-                            if name.endswith('/'):
-                                os.makedirs(output_path, exist_ok=True)
-                                continue
-                            
-                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                            
-                            with zip_file.open(name) as source:
-                                with open(output_path, 'wb') as target:
-                                    while True:
-                                        chunk = source.read(8192)
-                                        if not chunk:
-                                            break
-                                        target.write(chunk)
-                        
-                        log_func(f"解压成功，密码: '{password}' (Standard)")
-                        return True
-                        
-                except Exception as e:
-                    continue
-            
-            log_func("所有密码尝试失败")
-            return False
-            
-        finally:
-            if temp_zip_path and os.path.exists(temp_zip_path):
-                try:
-                    os.unlink(temp_zip_path)
-                except:
-                    pass
-
-    # ZIP文件位于末尾的隐写内容提取（适用于WinRAR）
-    try:
-        file_size = os.path.getsize(file_path)
-        
-        with open(file_path, 'rb') as f:
-            # 从文件的后半部分开始寻找ZIP头
-            search_start = file_size // 2
-            f.seek(search_start)
-            
-            chunk_size = 1024 * 1024
-            zip_start = None
-            
-            while f.tell() < file_size - 4:
-                chunk_start = f.tell()
-                chunk = f.read(chunk_size)
-                
-                if len(chunk) < 4:
-                    break
-                
-                for i in range(len(chunk) - 3):
-                    if chunk[i:i+4] == b'\x50\x4B\x03\x04':
-                        zip_start = chunk_start + i
-                        break
-                
-                if zip_start:
-                    break
-                
-                f.seek(f.tell() - 3)
-            
-            if not zip_start:
-                log_func("未找到ZIP文件头")
-                return False
-            
-            # 提取ZIP数据
-            f.seek(zip_start)
-            zip_data = f.read()
-            
-            # 清理尾部数据
-            zip_data = clean_zip_tail(zip_data)
-            
-            # 解压
-            return extract_zip_to_directory(zip_data, output_dir, password_list, log_func)
-            
-    except Exception as e:
-        log_func(f"简单ZIP提取失败: {e}")
-        return False
-
-
-def extract_with_offset_correction(file_path, output_dir, password_list, log_func):
-    """
-    带偏移量修正的ZIP提取（适用于ZArchiver兼容模式）
-    处理隐藏在 free 原子中的数据
-    """
-    try:
-        log_func("ZArchiver模式提取：查找 free 原子中的隐藏数据...")
-        
-        with open(file_path, 'rb') as f:
-            # 读取文件头，检查是否为MP4文件
-            f.seek(0)
-            header = f.read(12)
-            if len(header) < 12:
-                log_func("文件太小，不是有效的MP4文件")
-                return False
-            
-            # 检查ftyp原子
-            size = struct.unpack('>I', header[:4])[0]
-            atom_type = header[4:8].decode('ascii', errors='ignore')
-            
-            if atom_type != 'ftyp':
-                log_func("未找到ftyp原子，可能不是有效的MP4文件")
-                return False
-                
-            log_func(f"找到ftyp原子，大小: {size}")
-            
-            # 跳过ftyp原子，查找free原子
-            f.seek(size)
-            
-            while True:
-                pos = f.tell()
-                atom_header = f.read(8)
-                
-                if len(atom_header) < 8:
-                    log_func("到达文件末尾，未找到包含隐藏数据的free原子")
-                    break
-                
-                atom_size = struct.unpack('>I', atom_header[:4])[0]
-                atom_type = atom_header[4:8].decode('ascii', errors='ignore')
-                
-                log_func(f"检查原子: {atom_type}, 大小: {atom_size}, 位置: {pos}")
-                
-                if atom_type == 'free':
-                    log_func(f"找到free原子，位置: {pos}, 大小: {atom_size}")
-                    
-                    # 读取free原子的数据部分（跳过8字节头部）
-                    if atom_size <= 8:
-                        log_func("free原子太小，跳过")
-                        continue
-                        
-                    free_data = f.read(atom_size - 8)
-                    
-                    # 检查是否包含ZIP数据
-                    if len(free_data) >= 4:
-                        # 检查ZIP文件头 (PK\x03\x04)
-                        if free_data.startswith(b'PK\x03\x04'):
-                            log_func("在free原子中找到ZIP数据！")
-                            
-                            # 直接在内存中处理ZIP数据
-                            try:
-                        
-                                # 尝试用不同密码解压
-                                success = False
-                                for password in password_list:
-                                    try:
-                                        log_func(f"尝试密码: {'(空密码)' if not password else password}")
-                                        
-                                        # 使用BytesIO创建内存中的ZIP文件对象
-                                        zip_buffer = io.BytesIO(free_data)
-                                        
-                                        with pyzipper.AESZipFile(zip_buffer, 'r') as zip_file:
-                                            if password:
-                                                zip_file.setpassword(password.encode())
-                                            
-                                            # 列出ZIP内容
-                                            file_list = zip_file.namelist()
-                                            log_func(f"ZIP文件包含: {file_list}")
-                                            
-                                            # 解压所有文件到输出目录
-                                            zip_file.extractall(output_dir)
-                                            success = True
-                                            log_func(f"成功解压，使用密码: {'(空密码)' if not password else password}")
-                                            break
-                                            
-                                    except Exception as e:
-                                        log_func(f"密码 {'(空密码)' if not password else password} 解压失败: {e}")
-                                        continue
-                                
-                                if success:
-                                    log_func("ZArchiver模式解压成功！")
-                                    return True
-                                else:
-                                    log_func("所有密码都尝试失败")
-                                    
-                            except Exception as e:
-                                log_func(f"处理ZIP数据时出错: {e}")
-                        else:
-                            # 检查是否有其他压缩格式的特征码
-                            signatures = {
-                                b'Rar!': 'RAR',
-                                b'7z\xbc\xaf\x27\x1c': '7Z',
-                                b'\x1f\x8b': 'GZIP'
-                            }
-                            
-                            found_signature = False
-                            for sig, format_name in signatures.items():
-                                if free_data.startswith(sig):
-                                    log_func(f"在free原子中找到{format_name}格式数据，但当前只支持ZIP格式")
-                                    found_signature = True
-                                    break
-                            
-                            if not found_signature:
-                                log_func("free原子中的数据不是已知的压缩格式")
-                else:
-                    # 跳过当前原子
-                    if atom_size <= 8:
-                        log_func(f"原子大小异常: {atom_size}")
-                        break
-                    
-                    # 移动到下一个原子
-                    f.seek(pos + atom_size)
-        
-        log_func("ZArchiver模式提取失败：未找到有效的隐藏数据")
-        return False
-        
-    except Exception as e:
-        log_func(f"ZArchiver模式提取异常: {e}")
-        import traceback
-        log_func(f"详细错误: {traceback.format_exc()}")
-        return False
-
-
-def read_mp4_atoms(file_path):
-    """读取MP4文件的原子结构，找到ftyp原子的位置和大小"""
-    atoms = []
-    with open(file_path, 'rb') as f:
-        while True:
-            # 读取原子头部（8字节：4字节大小 + 4字节类型）
-            header = f.read(8)
-            if len(header) < 8:
-                break
-            
-            size = struct.unpack('>I', header[:4])[0]
-            atom_type = header[4:8].decode('ascii', errors='ignore')
-            
-            # 处理large size情况
-            if size == 1:
-                large_size = struct.unpack('>Q', f.read(8))[0]
-                atoms.append({
-                    'type': atom_type,
-                    'size': large_size,
-                    'offset': f.tell() - 16,
-                    'header_size': 16
-                })
-                f.seek(f.tell() + large_size - 16)
-            elif size == 0:
-                # 原子延续到文件末尾
-                current_pos = f.tell()
-                f.seek(0, 2)  # 跳到文件末尾
-                file_size = f.tell()
-                atoms.append({
-                    'type': atom_type,
-                    'size': file_size - current_pos + 8,
-                    'offset': current_pos - 8,
-                    'header_size': 8
-                })
-                break
-            else:
-                atoms.append({
-                    'type': atom_type,
-                    'size': size,
-                    'offset': f.tell() - 8,
-                    'header_size': 8
-                })
-                f.seek(f.tell() + size - 8)
-    
-    return atoms
-
-def create_free_atom_with_data(hidden_data):
-    """创建包含隐藏数据的free原子"""
-    data_size = len(hidden_data)
-    # free原子总大小 = 8字节头部 + 隐藏数据大小
-    total_size = 8 + data_size
-    
-    # 如果大小超过4GB，使用large size格式
-    if total_size > 0xFFFFFFFF:
-        # large size格式：4字节(1) + 4字节类型 + 8字节实际大小 + 数据
-        header = struct.pack('>I', 1) + b'free' + struct.pack('>Q', total_size + 8)
-        return header + hidden_data
-    else:
-        # 标准格式：4字节大小 + 4字节类型 + 数据
-        header = struct.pack('>I', total_size) + b'free'
-        return header + hidden_data
-
-def find_and_update_offsets_in_atom(atom_data, atom_type, offset_adjustment):
-    """在原子数据中递归查找并更新stco/co64偏移量"""
-    def update_stco_offsets(atom_data, offset_adjustment):
-        """更新stco原子中的chunk偏移量"""
-        if len(atom_data) < 16:
-            return atom_data
-        
-        # stco格式: 8字节头部 + 4字节版本/标志 + 4字节entry_count + entries
-        entry_count = struct.unpack('>I', atom_data[12:16])[0]
-        
-        # 检查数据长度是否足够
-        expected_length = 16 + entry_count * 4
-        if len(atom_data) < expected_length:
-            return atom_data
-        
-        # 更新偏移量
-        updated_data = bytearray(atom_data)
-        for i in range(entry_count):
-            offset_pos = 16 + i * 4
-            old_offset = struct.unpack('>I', atom_data[offset_pos:offset_pos + 4])[0]
-            new_offset = old_offset + offset_adjustment
-            struct.pack_into('>I', updated_data, offset_pos, new_offset)
-        
-        return bytes(updated_data)
-
-    def update_co64_offsets(atom_data, offset_adjustment):
-        """更新co64原子中的chunk偏移量"""
-        if len(atom_data) < 16:
-            return atom_data
-        
-        # co64格式: 8字节头部 + 4字节版本/标志 + 4字节entry_count + entries
-        entry_count = struct.unpack('>I', atom_data[12:16])[0]
-        
-        # 检查数据长度是否足够
-        expected_length = 16 + entry_count * 8
-        if len(atom_data) < expected_length:
-            return atom_data
-        
-        # 更新偏移量
-        updated_data = bytearray(atom_data)
-        for i in range(entry_count):
-            offset_pos = 16 + i * 8
-            old_offset = struct.unpack('>Q', atom_data[offset_pos:offset_pos + 8])[0]
-            new_offset = old_offset + offset_adjustment
-            struct.pack_into('>Q', updated_data, offset_pos, new_offset)
-        
-        return bytes(updated_data)
-
-    # 在原子数据中递归查找并更新stco/co64偏移量
-    if atom_type in ['stco', 'co64']:
-        if atom_type == 'stco':
-            return update_stco_offsets(atom_data, offset_adjustment)
-        elif atom_type == 'co64':
-            return update_co64_offsets(atom_data, offset_adjustment)
-    
-    # 对于容器原子，递归处理子原子
-    if atom_type in ['moov', 'trak', 'mdia', 'minf', 'stbl', 'udta']:
-        return update_container_atom_offsets(atom_data, offset_adjustment)
-    
-    return atom_data
-
-def update_container_atom_offsets(container_data, offset_adjustment):
-    """更新容器原子中的所有偏移量引用"""
-    if len(container_data) < 8:
-        return container_data
-    
-    updated_data = bytearray(container_data)
-    pos = 8  # 跳过容器原子的头部
-    
-    while pos < len(container_data):
-        if pos + 8 > len(container_data):
-            break
-            
-        # 读取子原子头部
-        size = struct.unpack('>I', container_data[pos:pos + 4])[0]
-        atom_type = container_data[pos + 4:pos + 8].decode('ascii', errors='ignore')
-        
-        if size == 0:  # 原子延续到容器末尾
-            size = len(container_data) - pos
-        elif size == 1:  # large size
-            if pos + 16 > len(container_data):
-                break
-            size = struct.unpack('>Q', container_data[pos + 8:pos + 16])[0]
-        
-        if size < 8 or pos + size > len(container_data):
-            break
-        
-        # 提取子原子数据并更新
-        atom_data = container_data[pos:pos + size]
-        updated_atom_data = find_and_update_offsets_in_atom(atom_data, atom_type, offset_adjustment)
-        
-        # 将更新后的数据写回
-        updated_data[pos:pos + size] = updated_atom_data
-        
-        pos += size
-    
-    return bytes(updated_data)
-
-# 解除隐写
-def extract_from_free_atom(file_path, output_dir, password_list):
-    """
-    从free原子中提取隐藏数据（新版本方法）
-    """
-    def extract_zip_data(zip_data, output_dir, password_list):
-        """
-        尝试解压ZIP数据
-        """
-        temp_zip_path = None
-        try:
-            # 写入临时文件
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
-                temp_zip_path = temp_file.name
-                temp_file.write(zip_data)
-            
-            # 尝试用每个密码解压
-            for password in password_list:
-                try:
-                    # 首先尝试pyzipper (AES加密)
-                    try:
-                        with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
-                            if password:
-                                zip_file.setpassword(password.encode())
-                            
-                            # 测试是否能正常读取
-                            namelist = zip_file.namelist()
-                            if not namelist:
-                                continue
-                            
-                            # 解压所有文件
-                            for name in namelist:
-                                clean_name = sanitize_path(name)
-                                if not clean_name:
-                                    continue
-                                
-                                output_file_path = os.path.join(output_dir, clean_name)
-                                
-                                if name.endswith('/'):
-                                    os.makedirs(output_file_path, exist_ok=True)
-                                    continue
-                                
-                                # 确保父目录存在
-                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                
-                                with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                    while True:
-                                        chunk = source.read(8192)
-                                        if not chunk:
-                                            break
-                                        target.write(chunk)
-                            
-                            return True, f"使用密码 '{password}' 成功解压 (AES)"
-                            
-                    except (pyzipper.BadZipFile, RuntimeError):
-                        pass
-                    
-                    # 然后尝试标准zipfile
-                    try:
-                        with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
-                            if password:
-                                zip_file.setpassword(password.encode())
-                            
-                            # 测试是否能正常读取
-                            namelist = zip_file.namelist()
-                            if not namelist:
-                                continue
-                            
-                            # 解压所有文件
-                            for name in namelist:
-                                clean_name = sanitize_path(name)
-                                if not clean_name:
-                                    continue
-                                
-                                output_file_path = os.path.join(output_dir, clean_name)
-                                
-                                if name.endswith('/'):
-                                    os.makedirs(output_file_path, exist_ok=True)
-                                    continue
-                                
-                                # 确保父目录存在
-                                os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                
-                                with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                    while True:
-                                        chunk = source.read(8192)
-                                        if not chunk:
-                                            break
-                                        target.write(chunk)
-                            
-                            return True, f"使用密码 '{password}' 成功解压 (Standard)"
-                            
-                    except (zipfile.BadZipFile, RuntimeError):
-                        pass
-                        
-                except Exception as e:
-                    continue
-            
-            return False, "所有密码尝试失败"
-            
-        except Exception as e:
-            return False, f"解压ZIP数据时出错: {e}"
-        finally:
-            # 清理临时文件
-            if temp_zip_path and os.path.exists(temp_zip_path):
-                try:
-                    os.unlink(temp_zip_path)
-                except:
-                    pass
-
-    # 流程正式开始
-    try:
-        atoms = read_mp4_atoms(file_path)
-        
-        # 查找包含数据的free原子
-        target_free = None
-        for atom in atoms:
-            if atom['type'] == 'free' and atom['size'] > 1024:
-                target_free = atom
-                break
-        
-        if not target_free:
-            return False, "未找到包含数据的free原子"
-        
-        # 提取free原子中的数据
-        with open(file_path, 'rb') as f:
-            f.seek(target_free['offset'] + target_free['header_size'])
-            hidden_data = f.read(target_free['size'] - target_free['header_size'])
-        
-        # 尝试解压数据
-        return extract_zip_data(hidden_data, output_dir, password_list)
-        
-    except Exception as e:
-        return False, f"从free原子提取数据时出错: {e}"
-
-
-
-
-
-
 ##############################################
 #################工具函数区结束################
 ##############################################
@@ -1241,7 +631,7 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.2 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.3.4 GUI 作者: 层林尽染"
         self.total_file_size = None     # 被隐写文件总大小
         self.password = None            # 密码
         self.password_modified = False  # 追踪密码是否被用户修改过
@@ -1362,7 +752,7 @@ class SteganographierGUI:
         else:
             self.cover_video_options = []
 
-        ## 使用 StringVar 和 宽Combobox 替代 OptionMenu
+        ## 隐写外壳视频下拉菜单
         self.output_cover_video_name_mode_var = tk.StringVar()
 
         ## 准备下拉选项列表
@@ -1869,9 +1259,9 @@ class Steganographier:
             yield data
 
     def log(self, message): 
-        if self.gui_enabled == False: # CLI模式专属log方法
+        if self.gui_enabled == False:   # CLI模式专属log方法
             print(message)
-        else:
+        else:                           # GUI模式log方法
             self.log_callback(message)
 
     def choose_cover_video_file(self, cover_video_CLI=None, 
@@ -2159,7 +1549,7 @@ class Steganographier:
                             
                             # 步骤3: 添加随机化数据
                             self.log("添加随机化数据...")
-                            add_randomization_data(output)
+                            self.add_randomization_data(output)
                             
                             final_size = output.tell()
                             self.log(f"最终文件大小: {final_size} bytes")
@@ -2222,7 +1612,7 @@ class Steganographier:
             
                 try:
                     # 读取原始MP4文件的原子结构
-                    atoms = read_mp4_atoms(cover_video_path)
+                    atoms = self.read_mp4_atoms(cover_video_path)
                     ftyp_atom = None
                     
                     # 查找ftyp原子
@@ -2239,7 +1629,7 @@ class Steganographier:
                         hidden_data = zip_file.read()
                     
                     # 创建包含隐藏数据的free原子
-                    free_atom_with_data = create_free_atom_with_data(hidden_data)
+                    free_atom_with_data = self.create_free_atom_with_data(hidden_data)
                     
                     # 计算偏移调整量（插入的free原子大小）
                     offset_adjustment = len(free_atom_with_data)
@@ -2299,7 +1689,7 @@ class Steganographier:
                                 atom_data = remaining_data[pos:pos + size]
                                 
                                 # 更新偏移量引用
-                                updated_atom_data = find_and_update_offsets_in_atom(atom_data, atom_type, offset_adjustment)
+                                updated_atom_data = self.find_and_update_offsets_in_atom(atom_data, atom_type, offset_adjustment)
                                 
                                 # 写入更新后的原子数据
                                 output.write(updated_atom_data)
@@ -2331,7 +1721,7 @@ class Steganographier:
                                 output.write(random_bytes)
 
                                 # 添加 MP4 文件的结尾标记 (空的 "mdat" box)
-                                add_empty_mdat_box(output)
+                                self.add_empty_mdat_box(output)
                                 
                 except Exception as e:
                     self.log(f"在写入MP4文件时发生未预料的错误: {str(e)}")
@@ -2345,11 +1735,6 @@ class Steganographier:
             os.remove(zip_file_path)
 
         self.log(f"Output file created: {os.path.exists(output_file)}")
-
-
-
-
-
 
     # 隐写时指定输出文件名+路径的方法
     def get_output_file_path(self, input_file_path=None, 
@@ -2428,6 +1813,58 @@ class Steganographier:
         
         return output_file_path  
     
+    def add_empty_mdat_box(self, file):
+        mdat_size = 8  # Minimum box size
+        mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
+        file.write(mdat_box)
+
+    def add_randomization_data(self, file_obj):
+        """
+        添加随机化数据进行哈希混淆
+        """
+        head_signatures = {
+            "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
+            "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
+            "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
+            "ZIP":   b'\x50\x4B\x03\x04',
+            "GZIP":  b'\x1F\x8B',
+            "BZIP2": b'\x42\x5A\x68',
+            "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
+        }
+        
+        # 添加2组随机化数据
+        for i in range(2):
+            signature = random.choice(list(head_signatures.values()))
+            file_obj.write(signature)
+            
+            random_size = 1024 * random.randint(5, 10)
+            random_bytes = os.urandom(random_size)
+            file_obj.write(random_bytes)
+        
+        # 添加MP4结尾标记
+        mdat_size = 8
+        mdat_box = struct.pack('>I4s', mdat_size, b'mdat')
+        file_obj.write(mdat_box)
+
+
+    def create_free_atom_with_data(self, hidden_data):
+        """创建包含隐藏数据的free原子"""
+        data_size = len(hidden_data)
+        # free原子总大小 = 8字节头部 + 隐藏数据大小
+        total_size = 8 + data_size
+        
+        # 如果大小超过4GB，使用large size格式
+        if total_size > 0xFFFFFFFF:
+            # large size格式：4字节(1) + 4字节类型 + 8字节实际大小 + 数据
+            header = struct.pack('>I', 1) + b'free' + struct.pack('>Q', total_size + 8)
+            return header + hidden_data
+        else:
+            # 标准格式：4字节大小 + 4字节类型 + 数据
+            header = struct.pack('>I', total_size) + b'free'
+            return header + hidden_data
+
+
+
     # 解除隐写部分
 
     ## 读取密码本
@@ -2538,10 +1975,10 @@ class Steganographier:
                     success = self._try_mp4_direct_extraction(input_file_path, password_list)
                     
                 elif method_name == 'mp4_zarchiver':
-                    success = extract_with_offset_correction(input_file_path, output_dir, password_list, self.log)
+                    success = self.extract_with_offset_correction(input_file_path, output_dir, password_list, self.log)
                     
                 elif method_name == 'free_atom':
-                    success, message = extract_from_free_atom(input_file_path, output_dir, password_list)
+                    success, message = self.extract_from_free_atom(input_file_path, output_dir, password_list)
                     if success:
                         self.log(f"free原子方法成功: {message}")
                         
@@ -2653,6 +2090,418 @@ class Steganographier:
             self.log(f"MP4直接提取过程出错: {e}")
             return False
 
+
+    def extract_with_offset_correction(self, file_path, output_dir, password_list, log_func):
+        """
+        带偏移量修正的ZIP提取（适用于ZArchiver兼容模式）
+        处理隐藏在 free 原子中的数据
+        """
+        try:
+            log_func("ZArchiver模式提取：查找 free 原子中的隐藏数据...")
+            
+            with open(file_path, 'rb') as f:
+                # 读取文件头，检查是否为MP4文件
+                f.seek(0)
+                header = f.read(12)
+                if len(header) < 12:
+                    log_func("文件太小，不是有效的MP4文件")
+                    return False
+                
+                # 检查ftyp原子
+                size = struct.unpack('>I', header[:4])[0]
+                atom_type = header[4:8].decode('ascii', errors='ignore')
+                
+                if atom_type != 'ftyp':
+                    log_func("未找到ftyp原子，可能不是有效的MP4文件")
+                    return False
+                    
+                log_func(f"找到ftyp原子，大小: {size}")
+                
+                # 跳过ftyp原子，查找free原子
+                f.seek(size)
+                
+                while True:
+                    pos = f.tell()
+                    atom_header = f.read(8)
+                    
+                    if len(atom_header) < 8:
+                        log_func("到达文件末尾，未找到包含隐藏数据的free原子")
+                        break
+                    
+                    atom_size = struct.unpack('>I', atom_header[:4])[0]
+                    atom_type = atom_header[4:8].decode('ascii', errors='ignore')
+                    
+                    log_func(f"检查原子: {atom_type}, 大小: {atom_size}, 位置: {pos}")
+                    
+                    if atom_type == 'free':
+                        log_func(f"找到free原子，位置: {pos}, 大小: {atom_size}")
+                        
+                        # 读取free原子的数据部分（跳过8字节头部）
+                        if atom_size <= 8:
+                            log_func("free原子太小，跳过")
+                            continue
+                            
+                        free_data = f.read(atom_size - 8)
+                        
+                        # 检查是否包含ZIP数据
+                        if len(free_data) >= 4:
+                            # 检查ZIP文件头 (PK\x03\x04)
+                            if free_data.startswith(b'PK\x03\x04'):
+                                log_func("在free原子中找到ZIP数据！")
+                                
+                                # 直接在内存中处理ZIP数据
+                                try:
+                            
+                                    # 尝试用不同密码解压
+                                    success = False
+                                    for password in password_list:
+                                        try:
+                                            log_func(f"尝试密码: {'(空密码)' if not password else password}")
+                                            
+                                            # 使用BytesIO创建内存中的ZIP文件对象
+                                            zip_buffer = io.BytesIO(free_data)
+                                            
+                                            with pyzipper.AESZipFile(zip_buffer, 'r') as zip_file:
+                                                if password:
+                                                    zip_file.setpassword(password.encode())
+                                                
+                                                # 列出ZIP内容
+                                                file_list = zip_file.namelist()
+                                                log_func(f"ZIP文件包含: {file_list}")
+                                                
+                                                # 解压所有文件到输出目录
+                                                zip_file.extractall(output_dir)
+                                                success = True
+                                                log_func(f"成功解压，使用密码: {'(空密码)' if not password else password}")
+                                                break
+                                                
+                                        except Exception as e:
+                                            log_func(f"密码 {'(空密码)' if not password else password} 解压失败: {e}")
+                                            continue
+                                    
+                                    if success:
+                                        log_func("ZArchiver模式解压成功！")
+                                        return True
+                                    else:
+                                        log_func("所有密码都尝试失败")
+                                        
+                                except Exception as e:
+                                    log_func(f"处理ZIP数据时出错: {e}")
+                            else:
+                                # 检查是否有其他压缩格式的特征码
+                                signatures = {
+                                    b'Rar!': 'RAR',
+                                    b'7z\xbc\xaf\x27\x1c': '7Z',
+                                    b'\x1f\x8b': 'GZIP'
+                                }
+                                
+                                found_signature = False
+                                for sig, format_name in signatures.items():
+                                    if free_data.startswith(sig):
+                                        log_func(f"在free原子中找到{format_name}格式数据，但当前只支持ZIP格式")
+                                        found_signature = True
+                                        break
+                                
+                                if not found_signature:
+                                    log_func("free原子中的数据不是已知的压缩格式")
+                    else:
+                        # 跳过当前原子
+                        if atom_size <= 8:
+                            log_func(f"原子大小异常: {atom_size}")
+                            break
+                        
+                        # 移动到下一个原子
+                        f.seek(pos + atom_size)
+            
+            log_func("ZArchiver模式提取失败：未找到有效的隐藏数据")
+            return False
+            
+        except Exception as e:
+            log_func(f"ZArchiver模式提取异常: {e}")
+            import traceback
+            log_func(f"详细错误: {traceback.format_exc()}")
+            return False
+
+
+    def read_mp4_atoms(self, file_path):
+        """读取MP4文件的原子结构，找到ftyp原子的位置和大小"""
+        atoms = []
+        with open(file_path, 'rb') as f:
+            while True:
+                # 读取原子头部（8字节：4字节大小 + 4字节类型）
+                header = f.read(8)
+                if len(header) < 8:
+                    break
+                
+                size = struct.unpack('>I', header[:4])[0]
+                atom_type = header[4:8].decode('ascii', errors='ignore')
+                
+                # 处理large size情况
+                if size == 1:
+                    large_size = struct.unpack('>Q', f.read(8))[0]
+                    atoms.append({
+                        'type': atom_type,
+                        'size': large_size,
+                        'offset': f.tell() - 16,
+                        'header_size': 16
+                    })
+                    f.seek(f.tell() + large_size - 16)
+                elif size == 0:
+                    # 原子延续到文件末尾
+                    current_pos = f.tell()
+                    f.seek(0, 2)  # 跳到文件末尾
+                    file_size = f.tell()
+                    atoms.append({
+                        'type': atom_type,
+                        'size': file_size - current_pos + 8,
+                        'offset': current_pos - 8,
+                        'header_size': 8
+                    })
+                    break
+                else:
+                    atoms.append({
+                        'type': atom_type,
+                        'size': size,
+                        'offset': f.tell() - 8,
+                        'header_size': 8
+                    })
+                    f.seek(f.tell() + size - 8)
+        
+        return atoms
+
+
+    def find_and_update_offsets_in_atom(self, atom_data, atom_type, offset_adjustment):
+        """在原子数据中递归查找并更新stco/co64偏移量"""
+        def update_stco_offsets(atom_data, offset_adjustment):
+            """更新stco原子中的chunk偏移量"""
+            if len(atom_data) < 16:
+                return atom_data
+            
+            # stco格式: 8字节头部 + 4字节版本/标志 + 4字节entry_count + entries
+            entry_count = struct.unpack('>I', atom_data[12:16])[0]
+            
+            # 检查数据长度是否足够
+            expected_length = 16 + entry_count * 4
+            if len(atom_data) < expected_length:
+                return atom_data
+            
+            # 更新偏移量
+            updated_data = bytearray(atom_data)
+            for i in range(entry_count):
+                offset_pos = 16 + i * 4
+                old_offset = struct.unpack('>I', atom_data[offset_pos:offset_pos + 4])[0]
+                new_offset = old_offset + offset_adjustment
+                struct.pack_into('>I', updated_data, offset_pos, new_offset)
+            
+            return bytes(updated_data)
+
+        def update_co64_offsets(atom_data, offset_adjustment):
+            """更新co64原子中的chunk偏移量"""
+            if len(atom_data) < 16:
+                return atom_data
+            
+            # co64格式: 8字节头部 + 4字节版本/标志 + 4字节entry_count + entries
+            entry_count = struct.unpack('>I', atom_data[12:16])[0]
+            
+            # 检查数据长度是否足够
+            expected_length = 16 + entry_count * 8
+            if len(atom_data) < expected_length:
+                return atom_data
+            
+            # 更新偏移量
+            updated_data = bytearray(atom_data)
+            for i in range(entry_count):
+                offset_pos = 16 + i * 8
+                old_offset = struct.unpack('>Q', atom_data[offset_pos:offset_pos + 8])[0]
+                new_offset = old_offset + offset_adjustment
+                struct.pack_into('>Q', updated_data, offset_pos, new_offset)
+            
+            return bytes(updated_data)
+
+        # 在原子数据中递归查找并更新stco/co64偏移量
+        if atom_type in ['stco', 'co64']:
+            if atom_type == 'stco':
+                return update_stco_offsets(atom_data, offset_adjustment)
+            elif atom_type == 'co64':
+                return update_co64_offsets(atom_data, offset_adjustment)
+        
+        # 对于容器原子，递归处理子原子
+        if atom_type in ['moov', 'trak', 'mdia', 'minf', 'stbl', 'udta']:
+            return self.update_container_atom_offsets(atom_data, offset_adjustment)
+        
+        return atom_data
+
+    def update_container_atom_offsets(self, container_data, offset_adjustment):
+        """更新容器原子中的所有偏移量引用"""
+        if len(container_data) < 8:
+            return container_data
+        
+        updated_data = bytearray(container_data)
+        pos = 8  # 跳过容器原子的头部
+        
+        while pos < len(container_data):
+            if pos + 8 > len(container_data):
+                break
+                
+            # 读取子原子头部
+            size = struct.unpack('>I', container_data[pos:pos + 4])[0]
+            atom_type = container_data[pos + 4:pos + 8].decode('ascii', errors='ignore')
+            
+            if size == 0:  # 原子延续到容器末尾
+                size = len(container_data) - pos
+            elif size == 1:  # large size
+                if pos + 16 > len(container_data):
+                    break
+                size = struct.unpack('>Q', container_data[pos + 8:pos + 16])[0]
+            
+            if size < 8 or pos + size > len(container_data):
+                break
+            
+            # 提取子原子数据并更新
+            atom_data = container_data[pos:pos + size]
+            updated_atom_data = self.find_and_update_offsets_in_atom(atom_data, atom_type, offset_adjustment)
+            
+            # 将更新后的数据写回
+            updated_data[pos:pos + size] = updated_atom_data
+            
+            pos += size
+        
+        return bytes(updated_data)
+
+    def extract_from_free_atom(self, file_path, output_dir, password_list):
+        """
+        从free原子中提取隐藏数据（新版本方法）
+        """
+        def extract_zip_data(zip_data, output_dir, password_list):
+            """
+            尝试解压ZIP数据
+            """
+            temp_zip_path = None
+            try:
+                # 写入临时文件
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
+                    temp_zip_path = temp_file.name
+                    temp_file.write(zip_data)
+                
+                # 尝试用每个密码解压
+                for password in password_list:
+                    try:
+                        # 首先尝试pyzipper (AES加密)
+                        try:
+                            with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
+                                if password:
+                                    zip_file.setpassword(password.encode())
+                                
+                                # 测试是否能正常读取
+                                namelist = zip_file.namelist()
+                                if not namelist:
+                                    continue
+                                
+                                # 解压所有文件
+                                for name in namelist:
+                                    clean_name = sanitize_path(name)
+                                    if not clean_name:
+                                        continue
+                                    
+                                    output_file_path = os.path.join(output_dir, clean_name)
+                                    
+                                    if name.endswith('/'):
+                                        os.makedirs(output_file_path, exist_ok=True)
+                                        continue
+                                    
+                                    # 确保父目录存在
+                                    os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+                                    
+                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
+                                        while True:
+                                            chunk = source.read(8192)
+                                            if not chunk:
+                                                break
+                                            target.write(chunk)
+                                
+                                return True, f"使用密码 '{password}' 成功解压 (AES)"
+                                
+                        except (pyzipper.BadZipFile, RuntimeError):
+                            pass
+                        
+                        # 然后尝试标准zipfile
+                        try:
+                            with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
+                                if password:
+                                    zip_file.setpassword(password.encode())
+                                
+                                # 测试是否能正常读取
+                                namelist = zip_file.namelist()
+                                if not namelist:
+                                    continue
+                                
+                                # 解压所有文件
+                                for name in namelist:
+                                    clean_name = sanitize_path(name)
+                                    if not clean_name:
+                                        continue
+                                    
+                                    output_file_path = os.path.join(output_dir, clean_name)
+                                    
+                                    if name.endswith('/'):
+                                        os.makedirs(output_file_path, exist_ok=True)
+                                        continue
+                                    
+                                    # 确保父目录存在
+                                    os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+                                    
+                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
+                                        while True:
+                                            chunk = source.read(8192)
+                                            if not chunk:
+                                                break
+                                            target.write(chunk)
+                                
+                                return True, f"使用密码 '{password}' 成功解压 (Standard)"
+                                
+                        except (zipfile.BadZipFile, RuntimeError):
+                            pass
+                            
+                    except Exception as e:
+                        continue
+                
+                return False, "所有密码尝试失败"
+                
+            except Exception as e:
+                return False, f"解压ZIP数据时出错: {e}"
+            finally:
+                # 清理临时文件
+                if temp_zip_path and os.path.exists(temp_zip_path):
+                    try:
+                        os.unlink(temp_zip_path)
+                    except:
+                        pass
+
+        # 流程正式开始
+        try:
+            atoms = self.read_mp4_atoms(file_path)
+            
+            # 查找包含数据的free原子
+            target_free = None
+            for atom in atoms:
+                if atom['type'] == 'free' and atom['size'] > 1024:
+                    target_free = atom
+                    break
+            
+            if not target_free:
+                return False, "未找到包含数据的free原子"
+            
+            # 提取free原子中的数据
+            with open(file_path, 'rb') as f:
+                f.seek(target_free['offset'] + target_free['header_size'])
+                hidden_data = f.read(target_free['size'] - target_free['header_size'])
+            
+            # 尝试解压数据
+            return extract_zip_data(hidden_data, output_dir, password_list)
+            
+        except Exception as e:
+            return False, f"从free原子提取数据时出错: {e}"
+
     def _try_mkv_extraction(self, input_file_path, password_list):        
         """
         尝试MKV附件提取
@@ -2730,19 +2579,34 @@ class Steganographier:
 
 
 
-    def run_cli(self, args):
-        # self.type_option_var = argparse.Namespace()
-        # self.type_option_var.get = lambda: args.type # 模拟.get() 方法
 
-        print(f"输入文件/文件夹路径: {args.input}")
-        print(f"输出文件/文件夹路径: {args.output}")
-        print(f"密码: {args.password}")
-        print(f"输出文件类型: {args.type}")
-        print(f"设定外壳MP4视频路径: {args.cover}")
-        print(f"执行解除隐写: {args.reveal}")
+
+    def run_cli(self, args):
+        """
+        运行命令行指令
+        """
+        self.log(f"输入文件/文件夹路径: {args.input}")
+        self.log(f"输出文件/文件夹路径: {args.output}")
+        self.log(f"密码: {args.password}")
+        self.log(f"输出文件类型: {args.type}")
+        self.log(f"设定外壳MP4视频路径: {args.cover}")
+        self.log(f"执行解除隐写: {args.reveal}")
+        self.log(f"批量解除隐写目录: {args.reveal_dir}")
+        self.log(f"启用批量解除GUI: {args.reveal_dir_gui}")
 
         self.type_option_var = args.type
         
+        # 处理批量解除隐写目录
+        if args.reveal_dir:
+            if args.reveal_dir_gui:
+                # 使用GUI模式处理
+                self.process_hidden_files_with_gui(args.input)
+            else:
+                # 使用命令行模式处理
+                self.process_hidden_files(args.input)
+            return
+        
+        # 处理单个文件
         if not args.reveal:
             if args.output:
                 output_file = args.output
@@ -2751,15 +2615,147 @@ class Steganographier:
                 output_file = f"{input_file_name}_hidden.{args.type}"
             
             self.hide_file(input_file_path=args.input, 
-                           cover_video_CLI=args.cover, 
-                           password=args.password, 
-                           output_file_path=output_file, 
-                           type_option_var=self.type_option_var)  # 调用hide_file方法
+                        cover_video_CLI=args.cover, 
+                        password=args.password, 
+                        output_file_path=output_file, 
+                        type_option_var=self.type_option_var)
         else:
             self.reveal_file(input_file_path=args.input, 
-                             password=args.password, 
-                             type_option_var=self.type_option_var)  # 调用reveal_file方法
+                            password=args.password, 
+                            type_option_var=self.type_option_var)
 
+    def process_hidden_files_with_gui(self, root_dir):
+        """
+        使用GUI界面批量处理目录中的隐写文件进行解除隐写
+        """
+        # 检查是否在CLI模式下运行（没有现有的root窗口）
+        temp_root = None
+        
+        if hasattr(self, 'root') and self.root is not None:
+            # GUI模式：使用现有的主窗口
+            root_window = self.root
+        else:
+            # CLI模式：创建临时的根窗口作为进度窗口
+            import tkinter as tk
+            from tkinterdnd2 import TkinterDnD
+            
+            temp_root = TkinterDnD.Tk()
+            temp_root.title("批量解除隐写")
+            temp_root.geometry("500x350")
+            temp_root.resizable(False, False)
+            
+            # 设置窗口图标（如果存在）
+            try:
+                temp_root.iconbitmap(os.path.join(application_path,'modules','favicon.ico'))
+            except tk.TclError:
+                pass
+            
+            root_window = temp_root
+        
+        # 在根窗口上创建进度界面
+        progress_window = BatchRevealProgressWindow(None, root_dir, self)
+        progress_window.window = root_window  # 直接使用根窗口
+        progress_window.create_progress_widgets()  # 创建进度控件
+        
+        def process_files():
+            """在后台线程中处理文件"""
+            processed_count = 0
+            success_count = 0
+            
+            # 扫描和处理文件的逻辑保持不变
+            video_files = []
+            progress_window.add_detail("正在扫描文件...")
+            
+            try:
+                for root, dirs, files in os.walk(root_dir):
+                    if progress_window.is_cancelled:
+                        break
+                    for file in files:
+                        if file.lower().endswith(('.mp4', '.mkv', '.mov', '.m4v', '.webm')):
+                            video_files.append(os.path.join(root, file))
+                
+                total_files = len(video_files)
+                progress_window.add_detail(f"找到 {total_files} 个视频文件")
+                
+                if total_files == 0:
+                    progress_window.add_detail("未找到任何视频文件")
+                    progress_window.processing_complete(0, 0)
+                    return
+                
+                # 处理每个文件
+                for i, file_path in enumerate(video_files, 1):
+                    if progress_window.is_cancelled:
+                        progress_window.add_detail("处理已被用户取消")
+                        break
+                    
+                    try:
+                        progress_window.update_progress(i-1, total_files, file_path)
+                        progress_window.add_detail(f"正在处理: {os.path.basename(file_path)}")
+                        
+                        self.reveal_file(input_file_path=file_path, 
+                                    password=None,
+                                    type_option_var=None)
+                        
+                        progress_window.add_detail(f"✓ 成功处理: {os.path.basename(file_path)}")
+                        success_count += 1
+                        
+                    except Exception as e:
+                        progress_window.add_detail(f"✗ 处理失败: {os.path.basename(file_path)} - {str(e)}")
+                    
+                    processed_count += 1
+                    progress_window.update_progress(i, total_files)
+                
+            except Exception as e:
+                progress_window.add_detail(f"扫描文件时出错: {str(e)}")
+            
+            # 处理完成
+            if not progress_window.is_cancelled:
+                progress_window.processing_complete(success_count, processed_count)
+                self.log(f"批量GUI处理完成: 总计处理 {processed_count} 个文件, 成功 {success_count} 个文件")
+        
+        # 在后台线程中启动文件处理
+        processing_thread = threading.Thread(target=process_files, daemon=True)
+        processing_thread.start()
+        
+        # 如果是CLI模式，启动GUI循环
+        if temp_root:
+            # 设置窗口关闭时的处理
+            def on_closing():
+                progress_window.is_cancelled = True
+                temp_root.quit()
+                temp_root.destroy()
+            
+            temp_root.protocol("WM_DELETE_WINDOW", on_closing)
+            temp_root.mainloop()
+
+    def process_hidden_files(self, root_dir):
+        """
+        批量处理目录中的隐写文件进行解除隐写
+        支持多种格式：MP4, MKV, MOV, M4V, WEBM等
+        """
+        processed_count = 0
+        success_count = 0
+        
+        for root, dirs, files in os.walk(root_dir):
+            for file in files:
+                # 检查文件扩展名，支持多种视频格式
+                if file.lower().endswith(('.mp4', '.mkv', '.mov', '.m4v', '.webm')):
+                    file_path = os.path.join(root, file)
+                    try:
+                        self.log(f"正在处理 {file_path}")
+                        # 直接调用reveal_file方法进行解除隐写
+                        # reveal_file方法会自动检测文件类型并选择合适的解压方法
+                        self.reveal_file(input_file_path=file_path, 
+                                    password=None,  # 使用默认密码文件
+                                    type_option_var=None)  # 自动检测文件类型
+                        self.log(f"处理 {file} 成功")
+                        success_count += 1
+                    except Exception as e:
+                        self.log(f"处理文件 {file_path} 时出错: {e}")
+                    finally:
+                        processed_count += 1
+        
+        self.log(f"批量处理完成: 总计处理 {processed_count} 个文件, 成功 {success_count} 个文件")
 
 
 
@@ -2782,6 +2778,7 @@ if __name__ == "__main__":
     else:  # 在开发环境中运行
         application_path = os.path.dirname(__file__)
 
+    # CLI模式参数传入
     parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
@@ -2789,6 +2786,8 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--type', default='mp4', choices=['mp4', 'mkv'], help='设置输出文件类型 (默认为mp4)')
     parser.add_argument('-c', '--cover', default=None, help='指定外壳MP4视频（默认在程序同路径下搜索）')
     parser.add_argument('-r', '--reveal', action='store_true', help='执行解除隐写')
+    parser.add_argument('-rd', '--reveal-dir', action='store_true', help='批量解除目录下所有隐写文件的隐写')
+    parser.add_argument('-rdgui', '--reveal-dir-gui', action='store_true', help='是否启用批量解除文件夹隐写时的独立gui窗口')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
 
     args, unknown = parser.parse_known_args()
@@ -2796,6 +2795,7 @@ if __name__ == "__main__":
     if unknown:  # 假如没有指定参数标签, 那么默认第一个传入为 -i 参数
         args.input = unknown[0]
 
+    # CLI模式参数处理
     if args.input:
         print('CLI')
         # 首先调整传入的参数
@@ -2840,7 +2840,10 @@ if __name__ == "__main__":
             args.password_file = os.path.join(application_path,"modules", "PW.txt")
         
         steganographier = Steganographier(password_file=args.password_file)
-        steganographier.run_cli(args)
+
+        print(args)
+        steganographier.run_cli(args) # 调用run_cli方法
+
     else:
         print('GUI')
         SteganographierGUI()
