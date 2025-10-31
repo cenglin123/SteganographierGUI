@@ -4,10 +4,17 @@ Created on Mon Apr 22 14:56:41 2024
 
     隐写者源代码
 
-pip install tkinterdnd2 -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install pyzipper -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install hachoir -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install natsort -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 创建并激活虚拟环境（如果尚未创建）
+python -m venv hide
+.\Scripts\activate
+python -m pip install -U pip setuptools wheel
+
+pip install tkinterdnd2 -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+pip install pyzipper -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+pip install hachoir -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+pip install natsort -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+pip install pyinstaller -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 @author: cenglin123
 """
@@ -1183,26 +1190,48 @@ class SteganographierGUI:
             json.dump(config, f, indent=4)
 
     def on_closing(self):
-        # 程序关闭时保存配置
-        self.save_config()
-        # 程序退出时关闭已打开的 hash_generator
-        if self.hash_modifier_process:
-            # 使用 taskkill 命令强制结束进程树
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.hash_modifier_process.pid)])
+        """窗口关闭"""
+        try:
+            # 程序关闭时保存配置
+            self.save_config()
+        except Exception as e:
+            print(f"保存配置失败: {e}")
         
-        if self.hash_modifier_thread and self.hash_modifier_thread.is_alive():
-            self.hash_modifier_thread.join(timeout=1)
+        # 进程清理
+        def kill_process_safe(process, process_name=""):
+            """安全地终止进程"""
+            if process:
+                try:
+                    # 检查进程是否还在运行
+                    if process.poll() is None:
+                        # 先尝试温和终止
+                        process.terminate()
+                        try:
+                            process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            # 强制终止
+                            subprocess.call(
+                                ['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                                timeout=2,  # 添加超时
+                                creationflags=subprocess.CREATE_NO_WINDOW  # 不显示命令窗口
+                            )
+                except Exception as e:
+                    print(f"终止{process_name}进程时出错: {e}")
         
-        # 程序退出时关闭已打开的 captcha_generator
-        if self.captcha_generator_process:
-            # 使用 taskkill 命令强制结束进程树
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.captcha_generator_process.pid)])
+        # 清理哈希修改器进程
+        kill_process_safe(self.hash_modifier_process, "hash_modifier")
         
-        if self.captcha_generator_thread and self.captcha_generator_thread.is_alive():
-            self.captcha_generator_thread.join(timeout=1)
+        # 清理验证码生成器进程
+        kill_process_safe(self.captcha_generator_process, "captcha_generator")
 
-        self.root.destroy()
-        # 强制结束整个 Python 进程
+        # 销毁窗口
+        try:
+            self.root.quit()  # 先尝试退出主循环
+            self.root.destroy()  # 再销毁窗口
+        except Exception as e:
+            print(f"销毁窗口时出错: {e}")
+        
+        # 强制退出
         os._exit(0)
 
 
