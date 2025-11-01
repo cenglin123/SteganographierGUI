@@ -626,10 +626,44 @@ def check_size_and_duration(size, duration_seconds):
 
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
-    def __init__(self):
+    def __init__(self, reveal_files=None, enable_log_file=True):
+        # 实现单例锁机制和进程间通信
+        self.lock_file = os.path.join(tempfile.gettempdir(), "steganographier_gui.lock")
+        self.comm_file = os.path.join(tempfile.gettempdir(), "steganographier_gui_comm.txt")
+        
+        if os.path.exists(self.lock_file):
+            # 如果已有实例在运行，将文件路径写入通信文件
+            if reveal_files:
+                try:
+                    with open(self.comm_file, 'w', encoding='utf-8') as f:
+                        for path in reveal_files:
+                            f.write(path + "\n")
+                    print(f"已将 {len(reveal_files)} 个文件路径发送到运行中的GUI实例")
+                except Exception as e:
+                    print(f"写入通信文件失败: {e}")
+            else:
+                pass
+                # messagebox.showwarning("警告", "隐写者GUI已在运行中")
+            sys.exit(0)
+        else:
+            # 创建锁文件
+            open(self.lock_file, "w").close()
+        
+        # 注册退出时删除锁文件和通信文件
+        import atexit
+        def cleanup():
+            try:
+                if os.path.exists(self.lock_file):
+                    os.remove(self.lock_file)
+                if os.path.exists(self.comm_file):
+                    os.remove(self.comm_file)
+            except:
+                pass
+        atexit.register(cleanup)
+        
         self.root = TkinterDnD.Tk()
-        self.video_folder_path = os.path.join(application_path, "cover_video")  # 定义实例变量 默认外壳MP4文件存储路径
-        self.output_option          = "外壳文件名"  # 设置输出模式的默认值
+        self.video_folder_path = os.path.join(application_path, "cover_video")
+        self.output_option          = "外壳文件名"
         self.type_option_var = tk.StringVar(value="mp4")
         self.output_cover_video_name_mode_var = tk.StringVar(value="")
         self.mkvmerge_exe           = os.path.join(application_path,'tools','mkvmerge.exe')
@@ -639,11 +673,11 @@ class SteganographierGUI:
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
         self.title = "隐写者 Ver.1.3.4 GUI 作者: 层林尽染"
-        self.total_file_size = None     # 被隐写文件总大小
-        self.password = None            # 密码
-        self.password_modified = False  # 追踪密码是否被用户修改过
-        self.check_file_size_and_duration_warned = False # 追踪是否警告过文件大小-外壳时长匹配问题
-        self.cover_video_options = []         # 外壳MP4文件列表
+        self.total_file_size = None
+        self.password = None
+        self.password_modified = False
+        self.check_file_size_and_duration_warned = False
+        self.cover_video_options = []
         
         self.hash_modifier_process = None
         self.hash_modifier_thread = None
@@ -651,16 +685,31 @@ class SteganographierGUI:
         self.captcha_generator_thread = None
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.config_file = os.path.join(application_path, "config.json") # 设置配置文件路径
-        self.load_config()  # 程序启动时加载配置文件
-        print(f"Loaded password from config: '{self.password}'")  # Debug output
+        self.config_file = os.path.join(application_path, "config.json")
+        self.load_config()
+        print(f"Loaded password from config: '{self.password}'")
 
-        self.steganographier = Steganographier(self.video_folder_path, gui_enabled=True)          # 创建一个Steganographier类的实例 传递self.video_folder_path  
-        self.steganographier.set_progress_callback(self.update_progress)                     # GUI进度条回调显示函数, 把GUI的进度条函数传给逻辑层, 从而把逻辑层的进度传回GUI
-        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration) # 外壳文件时长回调函数, 把当前外壳视频时长传回GUI
-        self.steganographier.set_log_callback(self.log)     # log回调函数
+        # 初始化 Steganographier 实例
+        self.steganographier = Steganographier(
+            self.video_folder_path, 
+            gui_enabled=True, 
+            enable_log_file=enable_log_file  # 启用日志文件
+        )
+        self.steganographier.set_progress_callback(self.update_progress)
+        self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration)
+        self.steganographier.set_log_callback(self.log)
 
-        self.create_widgets()           # GUI实现部分
+        self.create_widgets()  # GUI实现部分
+        
+        # 传参：如果有传入的文件路径，自动填充到 reveal_text
+        if reveal_files:
+            self.fill_reveal_files(reveal_files)
+        
+        # 启动定期检查通信文件的任务
+        self.check_comm_file()
+        
+        # 将 mainloop 移到这里
+        self.root.mainloop()
 
     # 1. 窗口控件初始化方法
     def create_widgets(self):
@@ -871,7 +920,7 @@ class SteganographierGUI:
         self.progress = ttk.Progressbar(self.root, length=500, mode='determinate')
         self.progress.pack(pady=10)
         
-        self.root.mainloop()
+        # self.root.mainloop()
 
     def open_link(self, url):
         """打开指定的URL链接"""
@@ -967,6 +1016,59 @@ class SteganographierGUI:
             size = get_file_or_folder_size(file_path)
             self.log(f"输入[{idx+1}]: {os.path.split(file_path)[1]} 大小: {format_size(size)}")
 
+    def check_comm_file(self):
+        """定期检查通信文件，如果有新的文件路径则自动填充"""
+        try:
+            if os.path.exists(self.comm_file):
+                # 读取通信文件
+                with open(self.comm_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                if lines:
+                    # 提取文件路径
+                    new_files = [line.strip() for line in lines if line.strip()]
+                    
+                    if new_files:
+                        # 填充到GUI
+                        self.fill_reveal_files(new_files)
+                        
+                        # 激活并置顶窗口
+                        self.root.lift()
+                        self.root.focus_force()
+                        self.root.attributes('-topmost', True)
+                        self.root.after(100, lambda: self.root.attributes('-topmost', False))
+                        
+                        self.log("=== 接收到新的文件路径 ===")
+                
+                # 清空通信文件
+                try:
+                    os.remove(self.comm_file)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"检查通信文件时出错: {e}")
+        
+        # 每500毫秒检查一次
+        self.root.after(500, self.check_comm_file)
+    
+    # 新增方法：填充解除隐写文件列表
+    def fill_reveal_files(self, file_paths):
+        """将传入的文件路径填充到解除隐写文本框中"""
+        if file_paths:
+            # 不清空现有内容，而是追加（如果需要清空，取消注释下一行）
+            self.reveal_text.delete("1.0", tk.END)
+            
+            for path in file_paths:
+                if path and path.strip():
+                    clean_path = path.strip().strip('"').strip("'")
+                    if os.path.exists(clean_path):
+                        self.reveal_text.insert(tk.END, clean_path + "\n")
+                        size = get_file_or_folder_size(clean_path)
+                        self.log(f"输入: {os.path.split(clean_path)[1]}, 大小: {format_size(size)}")
+            
+            self.log(f"已加载 {len(file_paths)} 个文件待解除隐写")
+
     # 4. 外壳MP4文件路径传参更新函数
     def update_video_folder_path(self, new_path):
         self.video_folder_path = new_path
@@ -1013,11 +1115,17 @@ class SteganographierGUI:
         return True
 
     def log(self, message):
+        """GUI日志记录方法, 同时显示在GUI文本框和写入日志文件"""
+        # 显示到GUI文本框
         self.log_text.configure(state=tk.NORMAL, fg="grey")
         self.log_text.insert(tk.END, message + "\n")
         self.log_text.configure(state=tk.DISABLED, fg="grey")
         self.log_text.see(tk.END)
         self.log_text.update_idletasks()
+        
+        # 同时写入日志文件
+        if hasattr(self, 'steganographier') and self.steganographier:
+            self.steganographier.write_to_log_file(message)
         
     def start_thread(self):
         # 在启动线程前, 先将焦点转移到主窗口上, 触发密码输入框的FocusOut事件
@@ -1195,7 +1303,14 @@ class SteganographierGUI:
             # 程序关闭时保存配置
             self.save_config()
         except Exception as e:
-            print(f"保存配置失败: {e}")
+            self.log(f"保存配置失败: {e}")
+        
+        # 添加：关闭日志文件
+        try:
+            if hasattr(self.steganographier, 'close_log_file'):
+                self.steganographier.close_log_file()
+        except Exception as e:
+            self.log(f"关闭日志文件失败: {e}")
         
         # 进程清理
         def kill_process_safe(process, process_name=""):
@@ -1216,7 +1331,7 @@ class SteganographierGUI:
                                 creationflags=subprocess.CREATE_NO_WINDOW  # 不显示命令窗口
                             )
                 except Exception as e:
-                    print(f"终止{process_name}进程时出错: {e}")
+                    self.log(f"终止{process_name}进程时出错: {e}")
         
         # 清理哈希修改器进程
         kill_process_safe(self.hash_modifier_process, "hash_modifier")
@@ -1224,12 +1339,23 @@ class SteganographierGUI:
         # 清理验证码生成器进程
         kill_process_safe(self.captcha_generator_process, "captcha_generator")
 
+        # 删除锁文件和通信文件
+        try:
+            if os.path.exists(self.lock_file):
+                os.remove(self.lock_file)
+                self.log(f"已删除锁文件: {self.lock_file}")
+            if os.path.exists(self.comm_file):
+                os.remove(self.comm_file)
+                self.log(f"已删除通信文件: {self.comm_file}")
+        except Exception as e:
+            self.log(f"删除临时文件时出错: {e}")
+
         # 销毁窗口
         try:
             self.root.quit()  # 先尝试退出主循环
             self.root.destroy()  # 再销毁窗口
         except Exception as e:
-            print(f"销毁窗口时出错: {e}")
+            self.log(f"销毁窗口时出错: {e}")
         
         # 强制退出
         os._exit(0)
@@ -1242,10 +1368,21 @@ class SteganographierGUI:
 
 
 
-
 class Steganographier:
     '''隐写的具体功能由此类实现'''
-    def __init__(self, video_folder_path=None, gui_enabled=False, password_file=None):
+    def __init__(self, video_folder_path=None, gui_enabled=False, password_file=None, enable_log_file=False):
+        
+        # 日志文件相关
+        # 首先定义 log 方法需要的基本属性
+        self.gui_enabled = gui_enabled
+        self.enable_log_file = enable_log_file
+        self.log_file_path = None
+        self.log_file_handle = None
+            
+        # 如果启用日志文件，则初始化日志文件
+        if self.enable_log_file:
+            self.init_log_file()
+        
         self.mkvmerge_exe   = os.path.join(application_path,'tools','mkvmerge.exe')
         self.mkvextract_exe = os.path.join(application_path,'tools','mkvextract.exe')
         self.mkvinfo_exe    = os.path.join(application_path,'tools','mkvinfo.exe')
@@ -1256,19 +1393,56 @@ class Steganographier:
             self.video_folder_path = video_folder_path
         else:
             self.video_folder_path = os.path.join(application_path, "cover_video")  # 默认外壳文件存放路径
-        print(f"外壳文件夹路径：{self.video_folder_path}")
+        self.gui_enabled                    = gui_enabled     # 是否是GUI模式
+        self.log(f"外壳文件夹路径：{self.video_folder_path}")
         self.total_file_size                = None            # 被隐写文件/文件夹的总大小
         self.password                       = None            # 密码
         self.remaining_cover_video_files    = []              # 随机选择模式时的剩余外壳文件列表
         self.progress_callback              = None            # 进度条回调参数
         self.cover_video_path               = None            # 包含完整路径的外壳文件
-        self.gui_enabled                    = gui_enabled     # 是否是GUI模式
 
-    def initialize_cover_video_files(self):
-        """随机选择模式-初始化剩余可用的外壳文件列表"""
-        cover_video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
-        random.shuffle(cover_video_files)  # 随机排序
-        self.remaining_cover_video_files = cover_video_files
+    def init_log_file(self):
+        """初始化日志文件"""
+        try:
+            # 创建logs目录
+            log_dir = os.path.join(application_path, 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # 生成日志文件名（带时间戳）
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.log_file_path = os.path.join(log_dir, f'steganographier_{timestamp}.log')
+            
+            # 打开日志文件
+            self.log_file_handle = open(self.log_file_path, 'w', encoding='utf-8')
+            
+            # 写入日志头部信息
+            self.log_file_handle.write("="*60 + "\n")
+            self.log_file_handle.write("隐写者程序运行日志\n")
+            self.log_file_handle.write(f"开始时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            self.log_file_handle.write("="*60 + "\n\n")
+            self.log_file_handle.flush()
+            
+            # 改用 print 而不是 self.log()，避免在初始化阶段出现问题
+            self.log(f"日志文件已创建: {self.log_file_path}")
+            
+        except Exception as e:
+            # 改用 print 而不是 self.log()
+            self.log(f"创建日志文件失败: {e}")
+            self.enable_log_file = False
+
+    def close_log_file(self):
+        """关闭日志文件"""
+        if self.log_file_handle:
+            try:
+                # 写入日志尾部信息
+                self.log_file_handle.write("\n" + "="*60 + "\n")
+                self.log_file_handle.write(f"结束时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                self.log_file_handle.write("="*60 + "\n")
+                self.log_file_handle.flush()
+                self.log_file_handle.close()
+                self.log(f"日志已保存到: {self.log_file_path}")
+            except Exception as e:
+                self.log(f"关闭日志文件失败: {e}")
 
     # GUI回调函数部分
     def set_progress_callback(self, callback):              # GUI进度条回调函数, callback代表自GUI传入的进度条函数
@@ -1287,11 +1461,35 @@ class Steganographier:
                 break
             yield data
 
+    def write_to_log_file(self, message):
+        """仅写入日志文件，不输出到控制台或GUI"""
+        if self.enable_log_file and self.log_file_handle:
+            try:
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                log_message = f"[{timestamp}] {message}"
+                self.log_file_handle.write(log_message + "\n")
+                self.log_file_handle.flush()
+            except Exception as e:
+                print(f"写入日志文件失败: {e}")
+
     def log(self, message): 
-        if self.gui_enabled == False:   # CLI模式专属log方法
+        """日志记录方法，支持控制台和GUI显示，并写入日志文件"""
+        # 控制台/GUI 显示
+        if self.gui_enabled == False:   # CLI模式
             print(message)
-        else:                           # GUI模式log方法
-            self.log_callback(message)
+        else:                           # GUI模式
+            if hasattr(self, 'log_callback') and self.log_callback:
+                self.log_callback(message)
+        
+        # 写入日志文件
+        self.write_to_log_file(message)
+
+
+    def initialize_cover_video_files(self):
+        """随机选择模式-初始化剩余可用的外壳文件列表"""
+        cover_video_files = [f for f in os.listdir(self.video_folder_path) if f.endswith(".mp4")]
+        random.shuffle(cover_video_files)  # 随机排序
+        self.remaining_cover_video_files = cover_video_files
 
     def choose_cover_video_file(self, cover_video_CLI=None, 
                                 processed_files=None, 
@@ -1314,28 +1512,28 @@ class Steganographier:
             if not self.remaining_cover_video_files:
                 self.initialize_cover_video_files()
             cover_video = self.remaining_cover_video_files.pop()
-            print(output_cover_video_name_mode, cover_video)
+            self.log(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============时长顺序模式===============':
             # 2-b. 按时长顺序选择一个外壳MP4文件用来隐写
             cover_video_files = get_cover_video_files_info(video_folder_path, sort_by_duration=True)  # 按时长顺序选择
             cover_video = cover_video_files[processed_files % len(cover_video_files)]
             cover_video = cover_video[:cover_video.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分, 以去除后续可能存在的时长大小等内容
-            print(output_cover_video_name_mode, cover_video)
+            self.log(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============名称顺序模式===============':
             # 2-c. 按名称顺序选择一个外壳MP4文件用来隐写
             cover_video = cover_video_files[processed_files % len(cover_video_files)]
-            print(output_cover_video_name_mode, cover_video)
+            self.log(output_cover_video_name_mode, cover_video)
 
         else:
             # 2-d. 根据下拉菜单选择外壳MP4文件
             cover_video = output_cover_video_name_mode
             cover_video = cover_video[:cover_video.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分, 以去除后续可能存在的时长大小等内容
-            print(f'下拉菜单模式, 视频信息: {output_cover_video_name_mode}')
+            self.log(f'下拉菜单模式, 视频信息: {output_cover_video_name_mode}')
         
         cover_video_path = os.path.join(video_folder_path, cover_video)
-        print(f'cover_video_path: {cover_video_path}')
+        self.log(f'cover_video_path: {cover_video_path}')
         return cover_video_path
         
     def compress_files(self, zip_file_path, input_file_path, processed_size=0, password=None):
@@ -1518,14 +1716,14 @@ class Steganographier:
                                                         processed_files=processed_files, 
                                                         output_cover_video_name_mode=output_cover_video_name_mode,
                                                         video_folder_path=self.video_folder_path)
-        print(f"实际隐写外壳文件：{cover_video_path}")
+        self.log(f"实际隐写外壳文件：{cover_video_path}")
                 
         # 2. 隐写的临时zip文件名
         zip_file_path = os.path.join(os.path.dirname(input_file_path), os.path.basename(input_file_path) + f"_hidden_{processed_files}.zip")
         
         # 3. 计算要压缩的文件总大小
         self.total_file_size = get_file_or_folder_size(input_file_path)
-        print(f"要压缩的文件总大小: {self.total_file_size} bytes")
+        self.log(f"要压缩的文件总大小: {self.total_file_size} bytes")
             
         processed_size = 0  # 初始化已处理的大小为0
         self.compress_files(zip_file_path, input_file_path, processed_size=processed_size, password=password)    # 创建隐写的临时zip文件
@@ -1780,15 +1978,15 @@ class Steganographier:
         if output_file_path:
             return output_file_path # 如果指定了输出文件名就用输出文件名（CLI模式）
 
-        print(f'type option: {self.type_option_var}')
+        self.log(f'type option: {self.type_option_var}')
         
         # 支持 mp4 和 mp4(zarchiver) 两种模式
         if self.type_option_var in ['mp4']:
-            print(f'input_file_path: {input_file_path}')
-            print(f'cover_video_path: {cover_video_path}')
+            self.log(f'input_file_path: {input_file_path}')
+            self.log(f'cover_video_path: {cover_video_path}')
 
             # 输出文件名选择
-            print(f'output_option: {output_option}')
+            self.log(f'output_option: {output_option}')
             if output_option == '原文件名':
                 if os.path.isdir(input_file_path):
                     output_file_path = input_file_path + f"_hidden_{processed_files+1}.mp4" # 当为文件夹时不存在扩展名
@@ -1801,14 +1999,14 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
-            print(f"output_file_path: {output_file_path}\n")    
+            self.log(f"output_file_path: {output_file_path}\n")    
 
         elif self.type_option_var in ['mp4(zarchiver)']:
-            print(f'input_file_path: {input_file_path}')
-            print(f'cover_video_path: {cover_video_path}')
+            self.log(f'input_file_path: {input_file_path}')
+            self.log(f'cover_video_path: {cover_video_path}')
 
             # 输出文件名选择
-            print(f'output_option: {output_option}')
+            self.log(f'output_option: {output_option}')
             if output_option == '原文件名':
                 if os.path.isdir(input_file_path):
                     output_file_path = input_file_path + f"_hidden_z{processed_files+1}.mp4" # 当为文件夹时不存在扩展名
@@ -1821,11 +2019,11 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_z{processed_files+1}.mp4')
-            print(f"output_file_path: {output_file_path}\n")   
+            self.log(f"output_file_path: {output_file_path}\n")   
         
         elif self.type_option_var == 'mkv':
             # 输出文件名选择
-            print(f'output_option: {output_option}')
+            self.log(f'output_option: {output_option}')
             if output_option == '原文件名':
                 if os.path.isdir(input_file_path):
                     output_file_path = input_file_path + f"_hidden_{processed_files+1}.mkv" # 当为文件夹时不存在扩展名
@@ -1838,7 +2036,7 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mkv')
-            print(f"output_file_path: {output_file_path}\n")    
+            self.log(f"output_file_path: {output_file_path}\n")    
         
         return output_file_path  
     
@@ -2625,33 +2823,38 @@ class Steganographier:
 
         self.type_option_var = args.type
         
-        # 处理批量解除隐写目录
-        if args.reveal_dir:
-            if args.reveal_dir_gui:
-                # 使用GUI模式处理
-                self.process_hidden_files_with_gui(args.input)
-            else:
-                # 使用命令行模式处理
-                self.process_hidden_files(args.input)
-            return
-        
-        # 处理单个文件
-        if not args.reveal:
-            if args.output:
-                output_file = args.output
-            else:
-                input_file_name = os.path.splitext(os.path.basename(args.input))[0]
-                output_file = f"{input_file_name}_hidden.{args.type}"
+        try:
+            # 处理批量解除隐写目录
+            if args.reveal_dir:
+                if args.reveal_dir_gui:
+                    # 使用GUI模式处理
+                    self.process_hidden_files_with_gui(args.input)
+                else:
+                    # 使用命令行模式处理
+                    self.process_hidden_files(args.input)
+                return
             
-            self.hide_file(input_file_path=args.input, 
-                        cover_video_CLI=args.cover, 
-                        password=args.password, 
-                        output_file_path=output_file, 
-                        type_option_var=self.type_option_var)
-        else:
-            self.reveal_file(input_file_path=args.input, 
+            # 处理单个文件
+            if not args.reveal:
+                if args.output:
+                    output_file = args.output
+                else:
+                    input_file_name = os.path.splitext(os.path.basename(args.input))[0]
+                    output_file = f"{input_file_name}_hidden.{args.type}"
+                
+                self.hide_file(input_file_path=args.input, 
+                            cover_video_CLI=args.cover, 
                             password=args.password, 
+                            output_file_path=output_file, 
                             type_option_var=self.type_option_var)
+            else:
+                self.reveal_file(input_file_path=args.input, 
+                                password=args.password, 
+                                type_option_var=self.type_option_var)
+        
+        finally:
+            # 确保日志文件被正确关闭
+            self.close_log_file()
 
     def process_hidden_files_with_gui(self, root_dir):
         """
@@ -2802,9 +3005,9 @@ if __name__ == "__main__":
         print("sys.stdout is None")
 
     # 关于程序执行路径的问题
-    if getattr(sys, 'frozen', False):  # 打包成exe的情况
+    if getattr(sys, 'frozen', False):
         application_path = os.path.dirname(sys.executable)
-    else:  # 在开发环境中运行
+    else:
         application_path = os.path.dirname(__file__)
 
     # CLI模式参数传入
@@ -2817,11 +3020,40 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--reveal', action='store_true', help='执行解除隐写')
     parser.add_argument('-rd', '--reveal-dir', action='store_true', help='批量解除目录下所有隐写文件的隐写')
     parser.add_argument('-rdgui', '--reveal-dir-gui', action='store_true', help='是否启用批量解除文件夹隐写时的独立gui窗口')
+    parser.add_argument('-rb', '--reveal-batch', action='store_true', help='批量解除隐写（打开GUI并自动填充文件列表）')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
+    parser.add_argument('--no-log', action='store_true', help='禁用日志文件（CLI模式默认启用）')
 
     args, unknown = parser.parse_known_args()
 
-    if unknown:  # 假如没有指定参数标签, 那么默认第一个传入为 -i 参数
+    # 处理 reveal-batch 模式
+    if args.reveal_batch:
+        print('GUI - Reveal Batch Mode')
+        # 收集所有文件路径（包括 -i 参数和 unknown 参数）
+        reveal_files = []
+        if args.input:
+            reveal_files.append(args.input)
+        reveal_files.extend(unknown)
+        
+        # 过滤和规范化路径
+        normalized_files = []
+        for path in reveal_files:
+            # 移除引号和空格
+            path = path.strip().strip('"').strip("'")
+            if path and os.path.exists(path):
+                normalized_files.append(path)
+            else:
+                print(f"警告：路径不存在或无效: {path}")
+        
+        print(f"接收到 {len(normalized_files)} 个有效文件路径")
+        for f in normalized_files:
+            print(f"  - {f}")
+        
+        # 启动 GUI 并传入文件路径
+        SteganographierGUI(reveal_files=normalized_files)
+        sys.exit(0)
+
+    if unknown:
         args.input = unknown[0]
 
     # CLI模式参数处理
@@ -2868,11 +3100,16 @@ if __name__ == "__main__":
         if args.password_file is None:
             args.password_file = os.path.join(application_path,"modules", "PW.txt")
         
-        steganographier = Steganographier(password_file=args.password_file)
+        # 4. 创建 Steganographier 实例，CLI模式下启用日志（除非用户指定 --no-log）
+        enable_log = not args.no_log  # 默认启用，除非用户明确禁用
+        steganographier = Steganographier(
+            password_file=args.password_file,
+            enable_log_file=enable_log
+        )
 
         print(args)
         steganographier.run_cli(args) # 调用run_cli方法
 
     else:
         print('GUI')
-        SteganographierGUI()
+        SteganographierGUI(enable_log_file=True)
