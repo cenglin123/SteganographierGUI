@@ -13,7 +13,6 @@ pip install tkinterdnd2 -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host
 pip install pyzipper -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 pip install hachoir -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 pip install natsort -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-
 pip install pyinstaller -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 @author: cenglin123
@@ -21,9 +20,7 @@ pip install pyinstaller -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host
 
 import os
 import io
-import re
 import sys
-import signal
 import json
 import random
 import datetime
@@ -45,7 +42,7 @@ import hashlib
 import unicodedata
 import struct
 import webbrowser
-
+import ctypes
 
 
 
@@ -97,9 +94,10 @@ class ToolTip:
 
 # 密码编辑器类
 class PasswordEditor:
-    def __init__(self, parent, password_file_path):
+    def __init__(self, parent, password_file_path, steganographier=None):
         self.parent = parent
         self.password_file_path = password_file_path
+        self.steganographier = steganographier  # 添加这个参数, 初始化时传入 Steganographier 实例，并在重新读取和保存后刷新密码：
         self.window = tk.Toplevel(parent)
         self.window.title("密码本编辑器")
         self.window.geometry("500x650")
@@ -216,6 +214,11 @@ class PasswordEditor:
             self.show_status("密码本加载成功", "green")
             self.update_stats()
             
+            # 重新加载Steganographier中的密码列表
+            if self.steganographier:
+                self.steganographier.passwords = self.steganographier.load_passwords()
+                self.show_status(f"密码本加载成功，已更新 {len(self.steganographier.passwords)} 个密码", "green")
+            
         except Exception as e:
             self.show_status(f"加载失败: {str(e)}", "red")
             
@@ -238,6 +241,11 @@ class PasswordEditor:
             
             self.show_status("密码本保存成功", "green")
             self.update_stats()
+            
+            # 重新加载Steganographier中的密码列表
+            if self.steganographier:
+                self.steganographier.passwords = self.steganographier.load_passwords()
+                self.show_status(f"密码本保存成功，已更新 {len(self.steganographier.passwords)} 个密码", "green")
             
         except Exception as e:
             self.show_status(f"保存失败: {str(e)}", "red")
@@ -465,6 +473,36 @@ class BatchRevealProgressWindow:
 ############## 工具函数区 ###############
 ########################################
 
+# ===== 控制台显示控制 =====
+def hide_console():
+    """隐藏控制台窗口（仅Windows）"""
+    if sys.platform == 'win32':
+        whnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if whnd != 0:
+            ctypes.windll.user32.ShowWindow(whnd, 0)  # 0 = SW_HIDE
+
+def show_console():
+    """显示控制台窗口（仅Windows）"""
+    if sys.platform == 'win32':
+        whnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if whnd != 0:
+            ctypes.windll.user32.ShowWindow(whnd, 1)  # 1 = SW_SHOWNORMAL
+
+def setup_console_streams():
+    """确保stdout和stderr可用（用于--noconsole模式）"""
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+    
+    # 修正编码问题
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except:
+            pass
+# ===========================
+
 def sanitize_path(path: str) -> str:
     """
     移除路径中的不可见字符和全角空格，返回清洗后的路径字符串
@@ -672,7 +710,7 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.4 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.3.5 GUI 作者: 层林尽染"
         self.total_file_size = None
         self.password = None
         self.password_modified = False
@@ -687,7 +725,7 @@ class SteganographierGUI:
 
         self.config_file = os.path.join(application_path, "config.json")
         self.load_config()
-        print(f"Loaded password from config: '{self.password}'")
+        # print(f"Loaded password from config on GUI: '{self.password}'")
 
         # 初始化 Steganographier 实例
         self.steganographier = Steganographier(
@@ -926,11 +964,6 @@ class SteganographierGUI:
         """打开指定的URL链接"""
         webbrowser.open_new(url)
 
-    def open_password_file(self):
-        """打开密码本编辑器窗口"""
-        password_file_path = os.path.join(application_path, 'modules', 'PW.txt')
-        PasswordEditor(self.root, password_file_path)
-
     ## 更新视频选项列表
     def update_video_options(self):
         """更新视频选择下拉框的选项（在 select_video_folder 方法中调用）"""
@@ -1123,10 +1156,6 @@ class SteganographierGUI:
         self.log_text.see(tk.END)
         self.log_text.update_idletasks()
         
-        # 同时写入日志文件
-        if hasattr(self, 'steganographier') and self.steganographier:
-            self.steganographier.write_to_log_file(message)
-        
     def start_thread(self):
         # 在启动线程前, 先将焦点转移到主窗口上, 触发密码输入框的FocusOut事件
         self.root.focus_set()
@@ -1270,6 +1299,12 @@ class SteganographierGUI:
         self.captcha_generator_thread = threading.Thread(target=run_and_wait)
         self.captcha_generator_thread.start()
 
+    def open_password_file(self):
+        """打开密码本编辑器窗口"""
+        password_file_path = os.path.join(application_path, 'modules', 'PW.txt')
+        # 传入 steganographier 实例
+        PasswordEditor(self.root, password_file_path, steganographier=self.steganographier)
+
     def load_config(self):
         if os.path.exists(self.config_file):
             with open(self.config_file, 'r') as f:
@@ -1378,7 +1413,11 @@ class Steganographier:
         self.enable_log_file = enable_log_file
         self.log_file_path = None
         self.log_file_handle = None
-            
+
+        # 添加线程锁，用于保护日志写入, GUI模式和批量处理模式使用多线程，需要锁保护日志文件，防止乱码
+        import threading
+        self.log_lock = threading.Lock()
+
         # 如果启用日志文件，则初始化日志文件
         if self.enable_log_file:
             self.init_log_file()
@@ -1412,37 +1451,51 @@ class Steganographier:
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             self.log_file_path = os.path.join(log_dir, f'steganographier_{timestamp}.log')
             
-            # 打开日志文件
-            self.log_file_handle = open(self.log_file_path, 'w', encoding='utf-8')
+            # 打开日志文件，使用无缓冲模式
+            self.log_file_handle = open(
+                self.log_file_path, 
+                'w', 
+                encoding='utf-8-sig',  # 带BOM
+                buffering=1  # 行缓冲
+            )
             
-            # 写入日志头部信息
-            self.log_file_handle.write("="*60 + "\n")
-            self.log_file_handle.write("隐写者程序运行日志\n")
-            self.log_file_handle.write(f"开始时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            self.log_file_handle.write("="*60 + "\n\n")
-            self.log_file_handle.flush()
+            # 使用锁保护初始写入
+            with self.log_lock:
+                # 写入日志头部信息
+                self.log_file_handle.write("="*60 + "\n")
+                self.log_file_handle.write("隐写者程序运行日志\n")
+                self.log_file_handle.write(f"开始时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                self.log_file_handle.write("="*60 + "\n\n")
+                self.log_file_handle.flush()
             
-            # 改用 print 而不是 self.log()，避免在初始化阶段出现问题
-            self.log(f"日志文件已创建: {self.log_file_path}")
+            # 使用 write_to_log_file 而不是 print
+            self.write_to_log_file(f"日志文件已创建: {self.log_file_path}")
             
         except Exception as e:
-            # 改用 print 而不是 self.log()
-            self.log(f"创建日志文件失败: {e}")
+            # 错误信息写入 stderr
+            import sys
+            sys.stderr.write(f"创建日志文件失败: {e}\n")
             self.enable_log_file = False
 
     def close_log_file(self):
         """关闭日志文件"""
         if self.log_file_handle:
             try:
-                # 写入日志尾部信息
-                self.log_file_handle.write("\n" + "="*60 + "\n")
-                self.log_file_handle.write(f"结束时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                self.log_file_handle.write("="*60 + "\n")
-                self.log_file_handle.flush()
-                self.log_file_handle.close()
-                self.log(f"日志已保存到: {self.log_file_path}")
+                # 使用锁保护关闭操作
+                with self.log_lock:
+                    # 写入日志尾部信息
+                    self.log_file_handle.write("\n" + "="*60 + "\n")
+                    self.log_file_handle.write(f"结束时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    self.log_file_handle.write("="*60 + "\n")
+                    self.log_file_handle.flush()
+                    self.log_file_handle.close()
+                
+                # 使用 stderr 而不是 print
+                import sys
+                sys.stderr.write(f"日志已保存到: {self.log_file_path}\n")
             except Exception as e:
-                self.log(f"关闭日志文件失败: {e}")
+                import sys
+                sys.stderr.write(f"关闭日志文件失败: {e}\n")
 
     # GUI回调函数部分
     def set_progress_callback(self, callback):              # GUI进度条回调函数, callback代表自GUI传入的进度条函数
@@ -1464,25 +1517,29 @@ class Steganographier:
     def write_to_log_file(self, message):
         """仅写入日志文件，不输出到控制台或GUI"""
         if self.enable_log_file and self.log_file_handle:
-            try:
-                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                log_message = f"[{timestamp}] {message}"
-                self.log_file_handle.write(log_message + "\n")
-                self.log_file_handle.flush()
-            except Exception as e:
-                print(f"写入日志文件失败: {e}")
+            # 使用锁保护日志写入，防止多线程竞争
+            with self.log_lock:
+                try:
+                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    log_message = f"[{timestamp}] {message}"
+                    self.log_file_handle.write(log_message + "\n")
+                    self.log_file_handle.flush()  # 立即刷新到磁盘
+                except Exception as e:
+                    print(f"写入日志文件失败: {e}")
 
     def log(self, message): 
         """日志记录方法，支持控制台和GUI显示，并写入日志文件"""
+        # 先写入日志文件（最优先）
+        self.write_to_log_file(message)
+        
         # 控制台/GUI 显示
         if self.gui_enabled == False:   # CLI模式
-            print(message)
+            # 在 CLI 模式下，不输出到控制台，只写文件
+            # 这样可以避免所有编码问题
+            pass
         else:                           # GUI模式
             if hasattr(self, 'log_callback') and self.log_callback:
                 self.log_callback(message)
-        
-        # 写入日志文件
-        self.write_to_log_file(message)
 
 
     def initialize_cover_video_files(self):
@@ -1586,7 +1643,8 @@ class Steganographier:
             zip_file.setpassword(password.encode())
 
             with zip_file:
-                self.log(f"Compressing file with encryption: {input_file_path}\n较大的文件可能会花费较长时间...")
+                self.log(f"Compressing file with encryption: {input_file_path}")
+                self.log("较大的文件可能会花费较长时间...")
 
                 # 收集所有需要压缩的文件
                 file_list = []
@@ -1626,7 +1684,8 @@ class Steganographier:
             zip_file = zipfile.ZipFile(zip_file_path, 'w')
 
             with zip_file:
-                self.log(f"Compressing file without encryption: {input_file_path}\n较大的文件可能会花费较长时间...")
+                self.log(f"Compressing file without encryption: {input_file_path}")
+                self.log("较大的文件可能会花费较长时间...")
 
                 # 收集所有需要压缩的文件
                 file_list = []
@@ -1961,7 +2020,7 @@ class Steganographier:
             # 5. 删除临时zip文件
             os.remove(zip_file_path)
 
-        self.log(f"Output file created: {os.path.exists(output_file)}")
+        self.log(f"Output file created: {os.path.exists(output_file)}\n")
 
     # 隐写时指定输出文件名+路径的方法
     def get_output_file_path(self, input_file_path=None, 
@@ -1999,7 +2058,7 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mp4')
-            self.log(f"output_file_path: {output_file_path}\n")    
+            self.log(f"output_file_path: {output_file_path}")    
 
         elif self.type_option_var in ['mp4(zarchiver)']:
             self.log(f'input_file_path: {input_file_path}')
@@ -2036,7 +2095,7 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mkv')
-            self.log(f"output_file_path: {output_file_path}\n")    
+            self.log(f"output_file_path: {output_file_path}")    
         
         return output_file_path  
     
@@ -2106,6 +2165,14 @@ class Steganographier:
                         password = parts[0].strip().encode('ascii', 'ignore').decode('ascii')
                         if password:
                             passwords.append(password)
+            
+            # 只在GUI模式下输出，避免CLI模式下过多日志
+            if self.gui_enabled and hasattr(self, 'log_callback') and self.log_callback:
+                self.log(f"已加载 {len(passwords)} 个密码")
+        else:
+            if self.gui_enabled and hasattr(self, 'log_callback') and self.log_callback:
+                self.log(f"密码文件不存在: {self.password_file}")
+        
         return passwords
 
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
@@ -2228,7 +2295,7 @@ class Steganographier:
             try:
                 os.remove(input_file_path)
                 self.log("原始隐写文件已删除")
-                self.log(f"解除隐写完成！成功方法: {successful_method}")
+                self.log(f"解除隐写完成！成功方法: {successful_method}\n")
             except Exception as e:
                 self.log(f"删除原始文件时出错: {e}")
         else:
@@ -2244,7 +2311,7 @@ class Steganographier:
         尝试直接从MP4文件中提取ZIP内容（普通MP4隐写模式）
         """
         try:
-            self.log(f"Loaded passwords: {self.passwords}")
+            self.log(f"Loaded passwords (Top 5): {self.passwords[:5]}") # 显示前5个密码以供调试
             
             for test_password in password_list:
                 try:
@@ -3000,7 +3067,7 @@ class Steganographier:
 if __name__ == "__main__":
     # 修正CLI模式的编码问题
     if sys.stdout is not None:
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8-sig')
     else:
         print("sys.stdout is None")
 
@@ -3010,8 +3077,27 @@ if __name__ == "__main__":
     else:
         application_path = os.path.dirname(__file__)
 
+    # ===== 控制台显示控制 =====
+    # 确保输出流可用（处理--noconsole模式）
+    setup_console_streams()
+    
+    # 预先判断是否为CLI模式（检查是否有命令行参数）
+    is_cli_mode = len(sys.argv) > 1 and any(
+        arg in sys.argv for arg in ['-i', '--input', '-r', '--reveal', 
+                                    '-rd', '--reveal-dir', '-h', '--help',
+                                    '-o', '--output', '-p', '--password']
+    )
+    
+    # 根据模式显示/隐藏控制台
+    if not is_cli_mode:
+        hide_console()
+    else:
+        show_console()
+    # ================================
+
     # CLI模式参数传入
-    parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染')
+    parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染', add_help=False)
+    parser.add_argument('-h', '--help', action='store_true', help='显示此帮助并退出')
     parser.add_argument('-i', '--input', default=None, help='指定输入文件或文件夹的路径')
     parser.add_argument('-o', '--output', default=None, help='1.指定输出文件名(包含后缀名) [或] 2.输出文件夹路径(默认为原文件名+"hidden")')
     parser.add_argument('-p', '--password', default='', help='设置密码 (默认无密码)')
@@ -3022,9 +3108,14 @@ if __name__ == "__main__":
     parser.add_argument('-rdgui', '--reveal-dir-gui', action='store_true', help='是否启用批量解除文件夹隐写时的独立gui窗口')
     parser.add_argument('-rb', '--reveal-batch', action='store_true', help='批量解除隐写（打开GUI并自动填充文件列表）')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
-    parser.add_argument('--no-log', action='store_true', help='禁用日志文件（CLI模式默认启用）')
+    parser.add_argument('--no-log', action='store_true', help='禁用日志文件')
 
     args, unknown = parser.parse_known_args()
+
+    # 如果请求帮助，直接打印并退出（避免继续进入 GUI）
+    if getattr(args, 'help', False):
+        parser.print_help()
+        sys.exit(0)
 
     # 处理 reveal-batch 模式
     if args.reveal_batch:
