@@ -43,6 +43,7 @@ import unicodedata
 import struct
 import webbrowser
 import ctypes
+import psutil
 
 
 
@@ -665,13 +666,41 @@ def check_size_and_duration(size, duration_seconds):
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
     def __init__(self, reveal_files=None, enable_log_file=True):
-        # 实现单例锁机制和进程间通信
-        self.lock_file = os.path.join(tempfile.gettempdir(), "steganographier_gui.lock")
-        self.comm_file = os.path.join(tempfile.gettempdir(), "steganographier_gui_comm.txt")
+
+        # 进程锁
+        modules_dir = os.path.join(application_path, "modules")
+        os.makedirs(modules_dir, exist_ok=True)
+        self.lock_file = os.path.join(modules_dir, "steganographier_gui.lock")
+        self.comm_file = os.path.join(modules_dir, "steganographier_gui_comm.txt")
+        self.activate_file = os.path.join(modules_dir, "steganographier_gui_activate.txt")
         
+        # 检查锁文件
+        existing_instance = False
         if os.path.exists(self.lock_file):
-            # 如果已有实例在运行，将文件路径写入通信文件
+            try:
+                # 读取锁文件中的PID
+                with open(self.lock_file, 'r') as f:
+                    old_pid = int(f.read().strip())
+                
+                # 检查该进程是否还在运行
+                if psutil.pid_exists(old_pid):
+                    try:
+                        proc = psutil.Process(old_pid) # 判断进程是否存活
+                        existing_instance = True
+                        print(f"检测到运行中的GUI实例 (PID: {old_pid})")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        existing_instance = False
+                else:
+                    existing_instance = False
+                    print(f"检测到遗留的锁文件 (PID: {old_pid} 已不存在)")
+            except (ValueError, IOError) as e:
+                print(f"读取锁文件失败: {e}")
+                existing_instance = False
+        
+        if existing_instance:
+            # 已有实例在运行
             if reveal_files:
+                # 有文件参数：写入通信文件并激活现有实例
                 try:
                     with open(self.comm_file, 'w', encoding='utf-8') as f:
                         for path in reveal_files:
@@ -679,26 +708,64 @@ class SteganographierGUI:
                     print(f"已将 {len(reveal_files)} 个文件路径发送到运行中的GUI实例")
                 except Exception as e:
                     print(f"写入通信文件失败: {e}")
+                
+                try:
+                    with open(self.activate_file, 'w', encoding='utf-8') as f:
+                        f.write("activate")
+                    print("已请求激活现有的GUI实例")
+                except Exception as e:
+                    print(f"写入激活请求失败: {e}")
+                
+                sys.exit(0)
             else:
-                pass
-                # messagebox.showwarning("警告", "隐写者GUI已在运行中")
-            sys.exit(0)
+                # 无文件参数：提示用户或激活现有实例
+                print("已有GUI实例在运行，无法启动新实例")
+                # 可选：尝试激活现有实例
+                try:
+                    with open(self.activate_file, 'w', encoding='utf-8') as f:
+                        f.write("activate")
+                except:
+                    pass
+                sys.exit(0)
         else:
-            # 创建锁文件
-            open(self.lock_file, "w").close()
+            # 清理旧的锁文件和通信文件（如果存在）
+            for file in [self.lock_file, self.comm_file, self.activate_file]:
+                if os.path.exists(file):
+                    try:
+                        os.remove(file)
+                    except:
+                        pass
         
-        # 注册退出时删除锁文件和通信文件
+        # 创建新的锁文件，写入当前进程的PID
+        try:
+            with open(self.lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            print(f"已创建锁文件 (PID: {os.getpid()})")
+        except Exception as e:
+            print(f"创建锁文件失败: {e}")
+        
+        # 注册退出时删除锁文件
         import atexit
         def cleanup():
             try:
+                # 只删除自己创建的锁文件（检查PID）
                 if os.path.exists(self.lock_file):
-                    os.remove(self.lock_file)
+                    with open(self.lock_file, 'r') as f:
+                        lock_pid = int(f.read().strip())
+                    if lock_pid == os.getpid():
+                        os.remove(self.lock_file)
+                        print(f"已删除锁文件 (PID: {os.getpid()})")
+                
+                # 清理通信文件
                 if os.path.exists(self.comm_file):
                     os.remove(self.comm_file)
+                if os.path.exists(self.activate_file):
+                    os.remove(self.activate_file)
             except:
                 pass
         atexit.register(cleanup)
         
+        # 初始化主窗口
         self.root = TkinterDnD.Tk()
         self.video_folder_path = os.path.join(application_path, "cover_video")
         self.output_option          = "外壳文件名"
@@ -710,7 +777,7 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.5 GUI 作者: 层林尽染"
+        self.title = "隐写者 Ver.1.3.6 GUI 作者: 层林尽染"
         self.total_file_size = None
         self.password = None
         self.password_modified = False
@@ -748,6 +815,23 @@ class SteganographierGUI:
         
         # 将 mainloop 移到这里
         self.root.mainloop()
+
+    def activate_window(self):
+        """激活并聚焦到当前窗口"""
+        try:
+            # 1. 取消最小化（如果窗口被最小化了）
+            self.root.deiconify()
+            # 2. 提升窗口（将窗口带到前台）
+            self.root.lift()            
+            # 3. 强制获取焦点
+            self.root.focus_force()            
+            # 4. 临时置顶，然后取消置顶（确保窗口可见）
+            self.root.attributes('-topmost', True)
+            self.root.after(100, lambda: self.root.attributes('-topmost', False))      
+            self.log("窗口已激活")
+            
+        except Exception as e:
+            self.log(f"激活窗口时出错: {e}")
 
     # 1. 窗口控件初始化方法
     def create_widgets(self):
@@ -1050,8 +1134,21 @@ class SteganographierGUI:
             self.log(f"输入[{idx+1}]: {os.path.split(file_path)[1]} 大小: {format_size(size)}")
 
     def check_comm_file(self):
-        """定期检查通信文件，如果有新的文件路径则自动填充"""
+        """定期检查通信文件和激活请求"""
         try:
+            # 1. 检查激活请求
+            if os.path.exists(self.activate_file):
+                try:
+                    # 激活窗口
+                    self.activate_window()
+                    
+                    # 删除激活请求文件
+                    os.remove(self.activate_file)
+                    
+                except Exception as e:
+                    print(f"处理激活请求时出错: {e}")
+            
+            # 2. 检查通信文件（原有逻辑）
             if os.path.exists(self.comm_file):
                 # 读取通信文件
                 with open(self.comm_file, 'r', encoding='utf-8') as f:
@@ -1065,11 +1162,8 @@ class SteganographierGUI:
                         # 填充到GUI
                         self.fill_reveal_files(new_files)
                         
-                        # 激活并置顶窗口
-                        self.root.lift()
-                        self.root.focus_force()
-                        self.root.attributes('-topmost', True)
-                        self.root.after(100, lambda: self.root.attributes('-topmost', False))
+                        # 激活窗口（同时激活窗口）
+                        self.activate_window()
                         
                         self.log("=== 接收到新的文件路径 ===")
                 
@@ -1640,7 +1734,10 @@ class Steganographier:
         if password:
             # 当设置了密码时，使用 pyzipper 进行 AES 加密
             zip_file = pyzipper.AESZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES)
-            zip_file.setpassword(password.encode())
+            zip_file.setpassword(password.encode('utf-8')) 
+            # print(f"使用密码: '{password.encode()}' (不指定编码)")
+            # print(f"使用密码: '{password.encode('ansi')}' (ansi编码)")
+            # print(f"使用密码: '{password.encode('utf-8')}' (utf-8编码)")
 
             with zip_file:
                 self.log(f"Compressing file with encryption: {input_file_path}")
@@ -3203,4 +3300,5 @@ if __name__ == "__main__":
 
     else:
         print('GUI')
+        # 无文件参数的普通 GUI 启动，即使有旧锁文件也会清理并启动新实例
         SteganographierGUI(enable_log_file=True)
