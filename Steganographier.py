@@ -665,7 +665,7 @@ def check_size_and_duration(size, duration_seconds):
 
 class SteganographierGUI:
     '''GUI: 隐写者程序表示层'''
-    def __init__(self, reveal_files=None, enable_log_file=True):
+    def __init__(self, reveal_files=None, enable_log_file=True, version="1.0.0"):
 
         # 进程锁
         modules_dir = os.path.join(application_path, "modules")
@@ -767,7 +767,7 @@ class SteganographierGUI:
         
         # 初始化主窗口
         self.root = TkinterDnD.Tk()
-        self.version = "1.3.7" # 版本号
+        self.version = version
         self.video_folder_path = os.path.join(application_path, "cover_video")
         self.output_option          = "外壳文件名"
         self.type_option_var = tk.StringVar(value="mp4")
@@ -3448,6 +3448,8 @@ if __name__ == "__main__":
         show_console()
     # ================================
 
+    version_info = "1.3.7" # 版本信息
+
     # CLI模式参数传入
     parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染', add_help=False)
     parser.add_argument('-h', '--help', action='store_true', help='显示此帮助并退出')
@@ -3462,6 +3464,7 @@ if __name__ == "__main__":
     parser.add_argument('-rb', '--reveal-batch', action='store_true', help='批量解除隐写（打开GUI并自动填充文件列表）')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
     parser.add_argument('--no-log', action='store_true', help='禁用日志文件')
+    parser.add_argument('-v', '--version', action='version', version=f'隐写者版本: {version_info}', help='显示版本号并退出')
 
     args, unknown = parser.parse_known_args()
 
@@ -3494,7 +3497,7 @@ if __name__ == "__main__":
             print(f"  - {f}")
         
         # 启动 GUI 并传入文件路径
-        SteganographierGUI(reveal_files=normalized_files)
+        SteganographierGUI(reveal_files=normalized_files, version=version_info)
         sys.exit(0)
 
     if unknown:
@@ -3548,7 +3551,8 @@ if __name__ == "__main__":
         enable_log = not args.no_log  # 默认启用，除非用户明确禁用
         steganographier = Steganographier(
             password_file=args.password_file,
-            enable_log_file=enable_log
+            enable_log_file=enable_log, 
+            version=version_info
         )
 
         print(args)
@@ -3557,4 +3561,4 @@ if __name__ == "__main__":
     else:
         print('GUI')
         # 无文件参数的普通 GUI 启动，即使有旧锁文件也会清理并启动新实例
-        SteganographierGUI(enable_log_file=True)
+        SteganographierGUI(enable_log_file=True, version=version_info)
