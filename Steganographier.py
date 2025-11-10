@@ -767,6 +767,7 @@ class SteganographierGUI:
         
         # 初始化主窗口
         self.root = TkinterDnD.Tk()
+        self.version = "1.3.7" # 版本号
         self.video_folder_path = os.path.join(application_path, "cover_video")
         self.output_option          = "外壳文件名"
         self.type_option_var = tk.StringVar(value="mp4")
@@ -777,11 +778,12 @@ class SteganographierGUI:
         self._7z_exe                = os.path.join(application_path,'tools','7z.exe')
         self.hash_modifier_exe      = os.path.join(application_path,'tools','hash_modifier.exe')
         self.captcha_generator_exe  = os.path.join(application_path,'tools','captcha_generator.exe')
-        self.title = "隐写者 Ver.1.3.6 GUI 作者: 层林尽染"
+        self.title = f"隐写者 Ver.{self.version} GUI 作者: 层林尽染"
         self.total_file_size = None
         self.password = None
         self.password_modified = False
         self.check_file_size_and_duration_warned = False
+        self.auto_clear_after_complete = False  # 执行完成后自动清空窗口的选项
         self.cover_video_options = []
         
         self.hash_modifier_process = None
@@ -798,7 +800,8 @@ class SteganographierGUI:
         self.steganographier = Steganographier(
             self.video_folder_path, 
             gui_enabled=True, 
-            enable_log_file=enable_log_file  # 启用日志文件
+            enable_log_file=enable_log_file,  # 启用日志文件
+            version=self.version # 版本号
         )
         self.steganographier.set_progress_callback(self.update_progress)
         self.steganographier.set_cover_video_duration_callback(self.on_cover_video_duration)
@@ -891,7 +894,7 @@ class SteganographierGUI:
         self.output_option = tk.OptionMenu(params_frame, self.output_option_var, "原文件名", "外壳文件名", "随机文件名")
         self.output_option.config(width=8)
         self.output_option.pack(side=tk.LEFT, padx=5, pady=5)
-        
+
         # 1.2 隐写/解隐写文件拖入窗口
         self.hide_frame = tk.Frame(self.root, bd=2, relief=tk.GROOVE)
         self.hide_frame.pack(pady=10)
@@ -924,7 +927,7 @@ class SteganographierGUI:
 
         self.video_folder_button = tk.Button(video_folder_frame, text="选择文件夹", command=self.select_video_folder)
         self.video_folder_button.pack(side=tk.LEFT, padx=5)
-
+        
         if os.path.exists(self.video_folder_path):
             self.cover_video_options = get_cover_video_files_info(self.video_folder_path)
         else:
@@ -1018,28 +1021,37 @@ class SteganographierGUI:
         self.open_password_file_button.pack(side=tk.LEFT, padx=5)
 
 
-        # 第二排超链接
-        link_row = ttk.Frame(button_frame)
-        link_row.pack(pady=4)  # 超链接行填满水平空间，与按钮保持间距
-        
-        # 创建超链接标签
+        # 第二排超链接和复选框容器
+        link_check_row = ttk.Frame(button_frame)
+        link_check_row.pack(fill="x", pady=4)  # 填满水平空间
+
+        # ✅ 复选框放在左上角
+        self.auto_clear_var = tk.BooleanVar(value=self.auto_clear_after_complete)
+        self.auto_clear_checkbox = tk.Checkbutton(
+            link_check_row,
+            text="执行完成后自动清空窗口", 
+            variable=self.auto_clear_var,
+        )
+        self.auto_clear_checkbox.pack(side=tk.LEFT, padx=40, pady=5)
+
+        # 超链接放在右下角
         self.github_link = ttk.Label(
-            link_row, 
+            link_check_row,
             text="访问本程序 Github",
-            foreground="blue", 
+            foreground="blue",
             cursor="hand2"  # 鼠标悬停时显示手型光标
         )
-        self.github_link.pack(anchor="e", padx=30)  # 靠右对齐
+        self.github_link.pack(side=tk.RIGHT, padx=30)  # 靠右对齐
 
         # 绑定点击事件
         self.github_link.bind("<Button-1>", lambda e: self.open_link("https://github.com/cenglin123/SteganographierGUI"))
-        
+
         # 鼠标悬停效果
         self.github_link.bind("<Enter>", lambda e: self.github_link.config(foreground="purple"))
         self.github_link.bind("<Leave>", lambda e: self.github_link.config(foreground="blue"))
-        
+
         # 1.6 进度条
-        self.progress = ttk.Progressbar(self.root, length=500, mode='determinate')
+        self.progress = ttk.Progressbar(self.root, length=550, mode='determinate')
         self.progress.pack(pady=10)
         
         # self.root.mainloop()
@@ -1333,6 +1345,11 @@ class SteganographierGUI:
                 self.update_progress(processed_files, total_files)
         
         messagebox.showinfo("Success", "所有操作已完成！")
+
+        if self.auto_clear_var.get():
+            self.log("执行完成，自动清空窗口...")
+            self.clear()
+
         # 结束后恢复按钮
         self.start_button.configure(state=tk.NORMAL)
         self.clear_button.configure(state=tk.NORMAL)
@@ -1414,6 +1431,7 @@ class SteganographierGUI:
                 self.output_option = config.get('output_option', self.output_option)
                 self.type_option_var = tk.StringVar(value=config.get('type_option', 'mp4'))
                 self.output_cover_video_name_mode_var = tk.StringVar(value=config.get('output_cover_video_name_mode', ''))
+                self.auto_clear_after_complete = config.get('auto_clear_after_complete', False)
 
     def save_config(self):
         config = {
@@ -1421,7 +1439,8 @@ class SteganographierGUI:
             'password': self.password_entry.get() if self.password_modified else '',
             'output_option': self.output_option_var.get(),
             'type_option': self.type_option_var.get(),
-            'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get()
+            'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get(),
+            'auto_clear_after_complete': self.auto_clear_var.get()
         }
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=4)
@@ -1499,7 +1518,7 @@ class SteganographierGUI:
 
 class Steganographier:
     '''隐写的具体功能由此类实现'''
-    def __init__(self, video_folder_path=None, gui_enabled=False, password_file=None, enable_log_file=False):
+    def __init__(self, video_folder_path=None, gui_enabled=False, password_file=None, enable_log_file=False, version="1.0.0"):
         
         # 日志文件相关
         # 首先定义 log 方法需要的基本属性
@@ -1507,6 +1526,7 @@ class Steganographier:
         self.enable_log_file = enable_log_file
         self.log_file_path = None
         self.log_file_handle = None
+        self.version = version  # 存储版本号
 
         # 添加线程锁，用于保护日志写入, GUI模式和批量处理模式使用多线程，需要锁保护日志文件，防止乱码
         import threading
@@ -1557,7 +1577,7 @@ class Steganographier:
             with self.log_lock:
                 # 写入日志头部信息
                 self.log_file_handle.write("="*60 + "\n")
-                self.log_file_handle.write("隐写者程序运行日志\n")
+                self.log_file_handle.write(f"隐写者程序运行日志-版本号: {self.version}\n")
                 self.log_file_handle.write(f"开始时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 self.log_file_handle.write("="*60 + "\n\n")
                 self.log_file_handle.flush()
@@ -1575,16 +1595,13 @@ class Steganographier:
         """关闭日志文件"""
         if self.log_file_handle:
             try:
-                # 使用锁保护关闭操作
                 with self.log_lock:
-                    # 写入日志尾部信息
+                    self.log_file_handle.flush()  # 只在关闭时flush
                     self.log_file_handle.write("\n" + "="*60 + "\n")
                     self.log_file_handle.write(f"结束时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     self.log_file_handle.write("="*60 + "\n")
-                    self.log_file_handle.flush()
                     self.log_file_handle.close()
                 
-                # 使用 stderr 而不是 print
                 import sys
                 sys.stderr.write(f"日志已保存到: {self.log_file_path}\n")
             except Exception as e:
@@ -1609,15 +1626,15 @@ class Steganographier:
             yield data
 
     def write_to_log_file(self, message):
-        """仅写入日志文件，不输出到控制台或GUI"""
+        """优化的日志写入 - 使用缓冲"""
         if self.enable_log_file and self.log_file_handle:
-            # 使用锁保护日志写入，防止多线程竞争
             with self.log_lock:
                 try:
                     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     log_message = f"[{timestamp}] {message}"
                     self.log_file_handle.write(log_message + "\n")
-                    self.log_file_handle.flush()  # 立即刷新到磁盘
+                    # 优化：不要每次都flush，让系统自动缓冲
+                    # self.log_file_handle.flush()  # 注释掉这行
                 except Exception as e:
                     print(f"写入日志文件失败: {e}")
 
@@ -2274,7 +2291,7 @@ class Steganographier:
 
     def reveal_file(self, input_file_path, password=None, type_option_var=None):
         """
-        智能解除隐写函数 - 自动尝试所有可能的解压方法
+        智能解除隐写函数 - 优先使用7-Zip高速解压
         """
         self.type_option_var = type_option_var
 
@@ -2293,16 +2310,20 @@ class Steganographier:
         success = False
         successful_method = None
 
-        # 检查文件扩展名来初步判断文件类型
+        # 检查文件扩展名
         file_extension = os.path.splitext(input_file_path.lower())[1]
         self.log(f"文件扩展名: {file_extension}")
 
-        # 定义所有可能的解压方法
+        # 定义解压方法优先级
         extraction_methods = []
         
-        # 智能方法选择：根据文件实际格式和指定模式
+        # ===== 优先使用7-Zip（如果存在）=====
+        if os.path.exists(self._7z_exe):
+            extraction_methods.insert(0, ('7zip', "7-Zip高速解压"))
+            self.log("检测到7z.exe，将优先使用7-Zip解压")
+        
+        # 根据文件类型添加其他方法
         if file_extension in ['.mp4', '.m4v', '.mov']:
-            # MP4相关格式的文件
             if type_option_var == 'mp4':
                 self.log("MP4文件 - 按指定MP4模式处理")
                 extraction_methods.extend([
@@ -2318,7 +2339,6 @@ class Steganographier:
                     ('mp4_trailing', "MP4文件末尾ZIP提取（WinRAR兼容）")
                 ])
             else:
-                # 类型选择错误或未指定，但文件是MP4
                 self.log(f"检测到MP4文件但模式选择为'{type_option_var}' - 自动使用MP4解压方法")
                 extraction_methods.extend([
                     ('mp4_zarchiver', "MP4 ZArchiver模式提取"),
@@ -2327,7 +2347,6 @@ class Steganographier:
                 ])
                 
         elif file_extension in ['.mkv', '.webm']:
-            # MKV相关格式的文件
             if type_option_var == 'mkv':
                 self.log("MKV文件 - 按指定MKV模式处理")
             else:
@@ -2335,10 +2354,8 @@ class Steganographier:
             extraction_methods.append(('mkv_attachment', "MKV附件提取"))
             
         else:
-            # 未知格式，尝试所有方法
             self.log(f"未知文件格式'{file_extension}' - 尝试所有可能的解压方法")
             if type_option_var == 'mkv':
-                # 优先尝试MKV方法
                 extraction_methods.extend([
                     ('mkv_attachment', "MKV附件提取"),
                     ('mp4_zarchiver', "MP4 ZArchiver模式提取"),
@@ -2346,7 +2363,6 @@ class Steganographier:
                     ('free_atom', "MP4 free原子方法")
                 ])
             else:
-                # 优先尝试MP4方法
                 extraction_methods.extend([
                     ('mp4_zarchiver', "MP4 ZArchiver模式提取"),
                     ('mp4_trailing', "MP4文件末尾ZIP提取（WinRAR兼容）"),
@@ -2362,7 +2378,17 @@ class Steganographier:
             self.log(f"尝试方法: {method_desc}")
             
             try:
-                if method_name == 'mp4_trailing':
+                # ===== 7-Zip优先 =====
+                if method_name == '7zip':
+                    # 尝试所有密码
+                    for pwd in password_list:
+                        self.log(f"7-Zip尝试密码: '{pwd}' (len: {len(pwd)})")
+                        if self._extract_with_7zip(input_file_path, pwd, output_dir):
+                            success = True
+                            successful_method = f"{method_desc}（密码: {pwd}）"
+                            break
+                    
+                elif method_name == 'mp4_trailing':
                     success = self._try_mp4_direct_extraction(input_file_path, password_list)
                     
                 elif method_name == 'mp4_zarchiver':
@@ -2377,7 +2403,8 @@ class Steganographier:
                     success = self._try_mkv_extraction(input_file_path, password_list)
                     
                 if success:
-                    successful_method = method_desc
+                    if not successful_method:  # 如果还没设置成功方法
+                        successful_method = method_desc
                     self.log(f"解压成功！使用方法: {successful_method}")
                     break
                 else:
@@ -2408,70 +2435,41 @@ class Steganographier:
         尝试直接从MP4文件中提取ZIP内容（普通MP4隐写模式）
         """
         try:
-            self.log(f"Loaded passwords (Top 5): {self.passwords[:5]}") # 显示前5个密码以供调试
+            self.log(f"Loaded passwords (Top 5): {self.passwords[:5]}")
+            
+            total_size_hidden = os.path.getsize(input_file_path)
             
             for test_password in password_list:
+                # 转换密码为bytes（如果有密码）
+                password_bytes = test_password.encode('utf-8') if test_password else None
+                
+                self.log(f"尝试密码: '{test_password}' (len: {len(test_password)})")
+                
+                # 尝试1: 使用标准zipfile（更快，支持标准ZIP加密）
                 try:
-                    # 添加详细的调试信息
-                    self.log(f"Attempting to reveal file with password: '{test_password}' (len: {len(test_password)})")
-
-                    total_size_hidden = os.path.getsize(input_file_path)
-                    processed_size = 0
-
-                    with open(input_file_path, "rb") as file1:
-                        with pyzipper.AESZipFile(file1) as zip_file:
-                            # 仅当密码不为空时才设置密码
-                            if test_password:
-                                zip_file.setpassword(test_password.encode())
-                            
-                            for name in zip_file.namelist():
-                                # 清理文件名中的不安全字符
-                                clean_name = sanitize_path(name)
-                                
-                                # 跳过空名称
-                                if not clean_name:
-                                    self.log(f"跳过空文件名: {name}")
-                                    continue
-                                
-                                output_file_path = os.path.join(os.path.dirname(input_file_path), clean_name)
-                                
-                                # 检查是否为文件夹（以 / 结尾）
-                                if name.endswith('/'):
-                                    self.log(f"创建文件夹: {output_file_path}")
-                                    try:
-                                        os.makedirs(output_file_path, exist_ok=True)
-                                    except OSError as e:
-                                        self.log(f"无法创建文件夹 {output_file_path}: {e}")
-                                    continue  # 跳过文件夹，继续处理下一个条目
-                                
-                                # 处理文件
-                                # 确保文件的父目录存在
-                                output_dir = os.path.dirname(output_file_path)
-                                if output_dir:
-                                    try:
-                                        os.makedirs(output_dir, exist_ok=True)
-                                    except OSError as e:
-                                        self.log(f"无法创建目录 {output_dir}: {e}")
-                                        continue
-                                
-                                self.log(f"正在提取文件: {output_file_path}")
-                                
-                                try:
-                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
-                                        for chunk in self.read_in_chunks(source):
-                                            output.write(chunk)
-                                            processed_size += len(chunk)
-                                            if self.progress_callback:
-                                                self.progress_callback(processed_size, total_size_hidden)
-                                except (OSError, IOError) as e:
-                                    self.log(f"无法创建文件 {output_file_path}: {e}")
-                                    continue
-
-                    self.log(f"File extracted successfully with password: {test_password}")
-                    return True  # 成功解压
-
-                except (pyzipper.BadZipFile, ValueError, RuntimeError) as e:
-                    self.log(f"无法解压文件 {input_file_path}, 使用密码 {test_password} 失败: {str(e)}")
+                    success = self._extract_with_zipfile(
+                        input_file_path, 
+                        password_bytes, 
+                        total_size_hidden
+                    )
+                    if success:
+                        self.log(f"使用zipfile解压成功，密码: {test_password}")
+                        return True
+                except (zipfile.BadZipFile, RuntimeError, ValueError) as e:
+                    self.log(f"zipfile解压失败 (可能是AES加密): {str(e)[:100]}")
+                
+                # 尝试2: 使用pyzipper（支持AES加密，但较慢）
+                try:
+                    success = self._extract_with_pyzipper(
+                        input_file_path, 
+                        password_bytes, 
+                        total_size_hidden
+                    )
+                    if success:
+                        self.log(f"使用pyzipper解压成功，密码: {test_password}")
+                        return True
+                except (pyzipper.BadZipFile, RuntimeError, ValueError) as e:
+                    self.log(f"pyzipper解压失败: {str(e)[:100]}")
                     continue
 
             self.log("所有密码尝试失败，无法解压文件")
@@ -2480,6 +2478,263 @@ class Steganographier:
         except Exception as e:
             self.log(f"MP4直接提取过程出错: {e}")
             return False
+
+    def _extract_with_7zip(self, input_file_path, password, output_dir):
+        """
+        使用7z.exe解压（优先使用此法）
+        """
+        import tempfile
+        import shutil
+        
+        temp_dir = None
+        try:
+            if not os.path.exists(self._7z_exe):
+                self.log("7z.exe不存在")
+                return False
+            
+            # 在目标目录同盘创建临时目录
+            try:
+                temp_dir = tempfile.mkdtemp(prefix='7z_', dir=output_dir)
+            except (OSError, PermissionError):
+                # 如果在输出目录创建失败，才使用系统临时目录
+                self.log("无法在输出目录创建临时文件夹，使用系统临时目录")
+                temp_dir = tempfile.mkdtemp(prefix='7z_extract_')
+            
+            self.log(f"临时目录: {temp_dir}")
+            
+            # 步骤1: 提取压缩包
+            self.log("提取压缩包...")
+            result1 = subprocess.run(
+                [self._7z_exe, 'x', input_file_path, '-t#', f'-o{temp_dir}', '-y'],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
+            
+            if result1.returncode != 0:
+                self.log(f"提取失败: {result1.stderr}")
+                return False
+            
+            # 步骤2: 查找并解压ZIP文件
+            zip_files = [
+                os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+                if f.lower().endswith(('.zip', '.7z', '.rar'))
+            ]
+            
+            if not zip_files:
+                self.log("未找到压缩文件")
+                return False
+            
+            # 解压所有ZIP
+            for zf in zip_files:
+                self.log(f"解压: {os.path.basename(zf)}")
+                result2 = subprocess.run(
+                    [self._7z_exe, 'x', zf, f'-o{output_dir}', '-y', '-mmt=on',
+                    f'-p{password}' if password else '-p'],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                )
+                
+                if result2.returncode != 0:
+                    self.log(f"解压失败: {result2.stderr}")
+                    return False
+            
+            self.log("7-Zip解压完成")
+            return True
+            
+        except Exception as e:
+            self.log(f"异常: {e}")
+            return False
+        finally:
+            # 清理
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                except:
+                    pass
+
+    def _extract_with_zipfile(self, input_file_path, password_bytes, total_size_hidden):
+        """
+        使用标准zipfile库解压
+        """
+        processed_size = 0
+        last_progress_update = 0
+        progress_update_threshold = 8 * 1024 * 1024  # 每8MB更新一次进度
+        
+        with open(input_file_path, "rb") as file_obj:
+            with zipfile.ZipFile(file_obj, 'r') as zip_file:
+                # 设置密码（如果有）
+                if password_bytes:
+                    zip_file.setpassword(password_bytes)
+                
+                file_list = zip_file.namelist()
+                file_count = len(file_list)
+                
+                # 先测试能否读取（验证密码）
+                if file_list:
+                    try:
+                        # 尝试读取第一个文件的前几个字节来验证密码
+                        first_file = [f for f in file_list if not f.endswith('/')][0] if any(not f.endswith('/') for f in file_list) else None
+                        if first_file:
+                            with zip_file.open(first_file) as test:
+                                test.read(1024)  # 读取1KB测试
+                    except RuntimeError as e:
+                        if 'Bad password' in str(e) or 'password required' in str(e).lower():
+                            return False
+                        raise
+                
+                current_file = 0
+                for name in file_list:
+                    current_file += 1
+                    clean_name = sanitize_path(name)
+                    
+                    if not clean_name:
+                        continue
+                    
+                    output_file_path = os.path.join(os.path.dirname(input_file_path), clean_name)
+                    
+                    # 处理文件夹
+                    if name.endswith('/'):
+                        try:
+                            os.makedirs(output_file_path, exist_ok=True)
+                        except OSError:
+                            pass
+                        continue
+                    
+                    # 确保父目录存在
+                    output_dir = os.path.dirname(output_file_path)
+                    if output_dir:
+                        try:
+                            os.makedirs(output_dir, exist_ok=True)
+                        except OSError:
+                            pass
+                    
+                    # 只在开始解压每个文件时记录日志
+                    if file_count > 5:  # 如果文件多，只显示简化信息
+                        if current_file == 1 or current_file % 10 == 0 or current_file == file_count:
+                            self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
+                    else:
+                        self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
+                    
+                    try:
+                        with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                            # 使用更大的缓冲区
+                            while True:
+                                chunk = source.read(32 * 1024 * 1024)  # 32MB
+                                if not chunk:
+                                    break
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                
+                                # 减少进度更新频率
+                                if processed_size - last_progress_update >= progress_update_threshold:
+                                    if self.progress_callback:
+                                        self.progress_callback(processed_size, total_size_hidden)
+                                    last_progress_update = processed_size
+                                    
+                    except (OSError, IOError) as e:
+                        self.log(f"无法创建文件 {output_file_path}: {e}")
+                        continue
+                
+                # 最后更新进度到100%
+                if self.progress_callback:
+                    self.progress_callback(total_size_hidden, total_size_hidden)
+        
+        return True
+
+    def _extract_with_pyzipper(self, input_file_path, password_bytes, total_size_hidden):
+        """
+        使用pyzipper库解压（支持AES加密，但较慢）
+        """
+        processed_size = 0
+        last_progress_update = 0
+        progress_update_threshold = 8 * 1024 * 1024  # 每8MB更新一次进度
+        
+        with open(input_file_path, "rb") as file_obj:
+            with pyzipper.AESZipFile(file_obj, 'r') as zip_file:
+                # 设置密码（如果有）
+                if password_bytes:
+                    zip_file.setpassword(password_bytes)
+                
+                file_list = zip_file.namelist()
+                file_count = len(file_list)
+                
+                # 先测试能否读取（验证密码）
+                if file_list:
+                    try:
+                        # 尝试读取第一个文件的前几个字节来验证密码
+                        first_file = [f for f in file_list if not f.endswith('/')][0] if any(not f.endswith('/') for f in file_list) else None
+                        if first_file:
+                            with zip_file.open(first_file) as test:
+                                test.read(1024)  # 读取1KB测试
+                    except RuntimeError as e:
+                        if 'Bad password' in str(e) or 'password required' in str(e).lower():
+                            return False
+                        raise
+                
+                current_file = 0
+                for name in file_list:
+                    current_file += 1
+                    clean_name = sanitize_path(name)
+                    
+                    if not clean_name:
+                        continue
+                    
+                    output_file_path = os.path.join(os.path.dirname(input_file_path), clean_name)
+                    
+                    # 处理文件夹
+                    if name.endswith('/'):
+                        try:
+                            os.makedirs(output_file_path, exist_ok=True)
+                        except OSError:
+                            pass
+                        continue
+                    
+                    # 确保父目录存在
+                    output_dir = os.path.dirname(output_file_path)
+                    if output_dir:
+                        try:
+                            os.makedirs(output_dir, exist_ok=True)
+                        except OSError:
+                            pass
+                    
+                    # 只在开始解压每个文件时记录日志
+                    if file_count > 5:  # 如果文件多，只显示简化信息
+                        if current_file == 1 or current_file % 10 == 0 or current_file == file_count:
+                            self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
+                    else:
+                        self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
+                    
+                    try:
+                        with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                            # 使用更大的缓冲区
+                            while True:
+                                chunk = source.read(32 * 1024 * 1024)  # 32MB
+                                if not chunk:
+                                    break
+                                output.write(chunk)
+                                processed_size += len(chunk)
+                                
+                                # 减少进度更新频率
+                                if processed_size - last_progress_update >= progress_update_threshold:
+                                    if self.progress_callback:
+                                        self.progress_callback(processed_size, total_size_hidden)
+                                    last_progress_update = processed_size
+                                    
+                    except (OSError, IOError) as e:
+                        self.log(f"无法创建文件 {output_file_path}: {e}")
+                        continue
+                
+                # 最后更新进度到100%
+                if self.progress_callback:
+                    self.progress_callback(total_size_hidden, total_size_hidden)
+        
+        return True
 
 
     def extract_with_offset_correction(self, file_path, output_dir, password_list, log_func):
@@ -2520,7 +2775,8 @@ class Steganographier:
                         break
                     
                     atom_size = struct.unpack('>I', atom_header[:4])[0]
-                    atom_type = atom_header[4:8].decode('ascii', errors='ignore')
+                    atom_type = atom_header[4:8].decode('ascii', errors='replace')
+                    atom_type = ''.join(c if c.isprintable() else '?' for c in atom_type)
                     
                     log_func(f"检查原子: {atom_type}, 大小: {atom_size}, 位置: {pos}")
                     
