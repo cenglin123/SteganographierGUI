@@ -2481,10 +2481,11 @@ class Steganographier:
 
     def _extract_with_7zip(self, input_file_path, password, output_dir):
         """
-        使用7z.exe解压（优先使用此法）
+        7-Zip两步解压（修复中文路径编码问题）
         """
         import tempfile
         import shutil
+        import locale
         
         temp_dir = None
         try:
@@ -2492,23 +2493,36 @@ class Steganographier:
                 self.log("7z.exe不存在")
                 return False
             
-            # 在目标目录同盘创建临时目录
+            # 创建临时目录
             try:
                 temp_dir = tempfile.mkdtemp(prefix='7z_', dir=output_dir)
             except (OSError, PermissionError):
-                # 如果在输出目录创建失败，才使用系统临时目录
-                self.log("无法在输出目录创建临时文件夹，使用系统临时目录")
                 temp_dir = tempfile.mkdtemp(prefix='7z_extract_')
             
             self.log(f"临时目录: {temp_dir}")
             
+            # ===== 关键修复：获取系统编码 =====
+            # Windows默认是GBK/CP936，不是UTF-8
+            system_encoding = locale.getpreferredencoding(False)
+            self.log(f"系统编码: {system_encoding}")
+            
             # 步骤1: 提取压缩包
             self.log("提取压缩包...")
+            
+            cmd_extract = [
+                self._7z_exe,
+                'x',
+                input_file_path,
+                '-t#',
+                f'-o{temp_dir}',
+                '-y'
+            ]
+            
             result1 = subprocess.run(
-                [self._7z_exe, 'x', input_file_path, '-t#', f'-o{temp_dir}', '-y'],
+                cmd_extract,
                 capture_output=True,
                 text=True,
-                encoding='utf-8',
+                encoding=system_encoding,  # ✅ 使用系统编码而不是UTF-8
                 errors='ignore',
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
@@ -2516,6 +2530,8 @@ class Steganographier:
             if result1.returncode != 0:
                 self.log(f"提取失败: {result1.stderr}")
                 return False
+            
+            self.log("提取成功")
             
             # 步骤2: 查找并解压ZIP文件
             zip_files = [
@@ -2530,12 +2546,26 @@ class Steganographier:
             # 解压所有ZIP
             for zf in zip_files:
                 self.log(f"解压: {os.path.basename(zf)}")
+                
+                cmd_unzip = [
+                    self._7z_exe,
+                    'x',
+                    zf,
+                    f'-o{output_dir}',
+                    '-y',
+                    '-mmt=on'
+                ]
+                
+                if password:
+                    cmd_unzip.append(f'-p{password}')
+                else:
+                    cmd_unzip.append('-p')
+                
                 result2 = subprocess.run(
-                    [self._7z_exe, 'x', zf, f'-o{output_dir}', '-y', '-mmt=on',
-                    f'-p{password}' if password else '-p'],
+                    cmd_unzip,
                     capture_output=True,
                     text=True,
-                    encoding='utf-8',
+                    encoding=system_encoding,  # ✅ 使用系统编码
                     errors='ignore',
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
                 )
@@ -2549,6 +2579,8 @@ class Steganographier:
             
         except Exception as e:
             self.log(f"异常: {e}")
+            import traceback
+            self.log(f"详细错误: {traceback.format_exc()}")
             return False
         finally:
             # 清理
