@@ -784,6 +784,7 @@ class SteganographierGUI:
         self.password_modified = False
         self.check_file_size_and_duration_warned = False
         self.auto_clear_after_complete = False  # 执行完成后自动清空窗口的选项
+        self.delete_original_after_reveal = True  # 解除隐写后默认删除原始文件
         self.cover_video_options = []
         
         self.hash_modifier_process = None
@@ -1032,7 +1033,15 @@ class SteganographierGUI:
             text="执行完成后自动清空窗口", 
             variable=self.auto_clear_var,
         )
-        self.auto_clear_checkbox.pack(side=tk.LEFT, padx=40, pady=5)
+        self.auto_clear_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
+
+        self.delete_after_reveal_var = tk.BooleanVar(value=self.delete_original_after_reveal)
+        self.delete_after_reveal_checkbox = tk.Checkbutton(
+            link_check_row,
+            text="解除隐写后删除原文件",
+            variable=self.delete_after_reveal_var,
+        )
+        self.delete_after_reveal_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
 
         # 超链接放在右下角
         self.github_link = ttk.Label(
@@ -1280,6 +1289,7 @@ class SteganographierGUI:
                 return ""  # 如果密码未修改过, 返回空字符串
             return self.password_entry.get()
         self.password = get_password()
+        delete_after_reveal = self.delete_after_reveal_var.get()
         
         if self.type_option_var.get() == 'mkv': # MKV模式检查工具是否存在
             if not self.check_mkvtools_existence():
@@ -1339,7 +1349,8 @@ class SteganographierGUI:
                 self.steganographier.reveal_file(
                     input_file_path=input_file_path, 
                     password=self.password, 
-                    type_option_var=self.type_option_var.get()
+                    type_option_var=self.type_option_var.get(),
+                    delete_original=delete_after_reveal
                 )
                 processed_files += 1
                 self.update_progress(processed_files, total_files)
@@ -1432,6 +1443,7 @@ class SteganographierGUI:
                 self.type_option_var = tk.StringVar(value=config.get('type_option', 'mp4'))
                 self.output_cover_video_name_mode_var = tk.StringVar(value=config.get('output_cover_video_name_mode', ''))
                 self.auto_clear_after_complete = config.get('auto_clear_after_complete', False)
+                self.delete_original_after_reveal = config.get('delete_original_after_reveal', True)
 
     def save_config(self):
         config = {
@@ -1440,7 +1452,8 @@ class SteganographierGUI:
             'output_option': self.output_option_var.get(),
             'type_option': self.type_option_var.get(),
             'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get(),
-            'auto_clear_after_complete': self.auto_clear_var.get()
+            'auto_clear_after_complete': self.auto_clear_var.get(),
+            'delete_original_after_reveal': self.delete_after_reveal_var.get()
         }
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=4)
@@ -2289,7 +2302,7 @@ class Steganographier:
         
         return passwords
 
-    def reveal_file(self, input_file_path, password=None, type_option_var=None):
+    def reveal_file(self, input_file_path, password=None, type_option_var=None, delete_original=True):
         """
         智能解除隐写函数 - 优先使用7-Zip高速解压
         """
@@ -2418,12 +2431,15 @@ class Steganographier:
 
         # 处理结果
         if success:
-            try:
-                os.remove(input_file_path)
-                self.log("原始隐写文件已删除")
-                self.log(f"解除隐写完成！成功方法: {successful_method}\n")
-            except Exception as e:
-                self.log(f"删除原始文件时出错: {e}")
+            if delete_original:
+                try:
+                    os.remove(input_file_path)
+                    self.log("原始隐写文件已删除")
+                except Exception as e:
+                    self.log(f"删除原始文件时出错: {e}")
+            else:
+                self.log("已保留原始隐写文件")
+            self.log(f"解除隐写完成！成功方法: {successful_method}\n")
         else:
             self.log("所有解压方法都失败了")
             self.log("可能的原因:")
@@ -3274,18 +3290,20 @@ class Steganographier:
         self.log(f"执行解除隐写: {args.reveal}")
         self.log(f"批量解除隐写目录: {args.reveal_dir}")
         self.log(f"启用批量解除GUI: {args.reveal_dir_gui}")
+        self.log(f"解除后保留原文件: {args.keep_original}")
 
         self.type_option_var = args.type
+        delete_original_after_reveal = not args.keep_original
         
         try:
             # 处理批量解除隐写目录
             if args.reveal_dir:
                 if args.reveal_dir_gui:
                     # 使用GUI模式处理
-                    self.process_hidden_files_with_gui(args.input)
+                    self.process_hidden_files_with_gui(args.input, delete_original=delete_original_after_reveal)
                 else:
                     # 使用命令行模式处理
-                    self.process_hidden_files(args.input)
+                    self.process_hidden_files(args.input, delete_original=delete_original_after_reveal)
                 return
             
             # 处理单个文件
@@ -3304,13 +3322,14 @@ class Steganographier:
             else:
                 self.reveal_file(input_file_path=args.input, 
                                 password=args.password, 
-                                type_option_var=self.type_option_var)
+                                type_option_var=self.type_option_var,
+                                delete_original=delete_original_after_reveal)
         
         finally:
             # 确保日志文件被正确关闭
             self.close_log_file()
 
-    def process_hidden_files_with_gui(self, root_dir):
+    def process_hidden_files_with_gui(self, root_dir, delete_original=True):
         """
         使用GUI界面批量处理目录中的隐写文件进行解除隐写
         """
@@ -3380,7 +3399,8 @@ class Steganographier:
                         
                         self.reveal_file(input_file_path=file_path, 
                                     password=None,
-                                    type_option_var=None)
+                                    type_option_var=None,
+                                    delete_original=delete_original)
                         
                         progress_window.add_detail(f"✓ 成功处理: {os.path.basename(file_path)}")
                         success_count += 1
@@ -3414,7 +3434,7 @@ class Steganographier:
             temp_root.protocol("WM_DELETE_WINDOW", on_closing)
             temp_root.mainloop()
 
-    def process_hidden_files(self, root_dir):
+    def process_hidden_files(self, root_dir, delete_original=True):
         """
         批量处理目录中的隐写文件进行解除隐写
         支持多种格式：MP4, MKV, MOV, M4V, WEBM等
@@ -3433,7 +3453,8 @@ class Steganographier:
                         # reveal_file方法会自动检测文件类型并选择合适的解压方法
                         self.reveal_file(input_file_path=file_path, 
                                     password=None,  # 使用默认密码文件
-                                    type_option_var=None)  # 自动检测文件类型
+                                    type_option_var=None,
+                                    delete_original=delete_original)  # 自动检测文件类型
                         self.log(f"处理 {file} 成功")
                         success_count += 1
                     except Exception as e:
@@ -3496,6 +3517,7 @@ if __name__ == "__main__":
     parser.add_argument('-rd', '--reveal-dir', action='store_true', help='批量解除目录下所有隐写文件的隐写')
     parser.add_argument('-rdgui', '--reveal-dir-gui', action='store_true', help='是否启用批量解除文件夹隐写时的独立gui窗口')
     parser.add_argument('-rb', '--reveal-batch', action='store_true', help='批量解除隐写（打开GUI并自动填充文件列表）')
+    parser.add_argument('--keep-original', action='store_true', help='解除隐写后保留原始文件')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
     parser.add_argument('--no-log', action='store_true', help='禁用日志文件')
     parser.add_argument('-v', '--version', action='version', version=f'隐写者版本: {version_info}', help='显示版本号并退出')
