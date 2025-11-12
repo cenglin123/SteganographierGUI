@@ -2307,6 +2307,8 @@ class Steganographier:
             password_list.append('')
 
         output_dir = os.path.dirname(input_file_path)
+        if not output_dir: output_dir = '.' # 如果是空字符串,使用当前目录
+            
         success = False
         successful_method = None
 
@@ -2514,7 +2516,7 @@ class Steganographier:
                 'x',
                 input_file_path,
                 '-t#',
-                f'-o{temp_dir}',
+                f'-o{temp_dir or "."}',
                 '-y'
             ]
             
