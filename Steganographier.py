@@ -1324,9 +1324,7 @@ class SteganographierGUI:
         processed_files = 0
         for input_file_path in hide_file_paths:
             if input_file_path:
-                # if not os.path.exists(input_file_path):
-                #     self.log(f"警告：文件名不存在或含有非法字符，跳过 -> {input_file_path}")
-                #     continue
+                # 执行隐写
                 self.steganographier.hide_file(
                     input_file_path=input_file_path, 
                     password=self.password,
@@ -1693,19 +1691,22 @@ class Steganographier:
             if not self.remaining_cover_video_files:
                 self.initialize_cover_video_files()
             cover_video = self.remaining_cover_video_files.pop()
-            self.log(output_cover_video_name_mode, cover_video)
+            self.log(f"已选择隐写外壳文件: {cover_video}")
+            print(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============时长顺序模式===============':
             # 2-b. 按时长顺序选择一个外壳MP4文件用来隐写
             cover_video_files = get_cover_video_files_info(video_folder_path, sort_by_duration=True)  # 按时长顺序选择
             cover_video = cover_video_files[processed_files % len(cover_video_files)]
             cover_video = cover_video[:cover_video.rfind('.mp4')] + '.mp4'  # 按最后一个.mp4切分, 以去除后续可能存在的时长大小等内容
-            self.log(output_cover_video_name_mode, cover_video)
+            self.log(f"已选择隐写外壳文件: {cover_video}")
+            print(output_cover_video_name_mode, cover_video)
 
         elif output_cover_video_name_mode == '===============名称顺序模式===============':
             # 2-c. 按名称顺序选择一个外壳MP4文件用来隐写
             cover_video = cover_video_files[processed_files % len(cover_video_files)]
-            self.log(output_cover_video_name_mode, cover_video)
+            self.log(f"已选择隐写外壳文件: {cover_video}")
+            print(output_cover_video_name_mode, cover_video)
 
         else:
             # 2-d. 根据下拉菜单选择外壳MP4文件
@@ -1714,7 +1715,7 @@ class Steganographier:
             self.log(f'下拉菜单模式, 视频信息: {output_cover_video_name_mode}')
         
         cover_video_path = os.path.join(video_folder_path, cover_video)
-        self.log(f'cover_video_path: {cover_video_path}')
+        # self.log(f'cover_video_path1: {cover_video_path}') # 测试
         return cover_video_path
         
     def compress_files(self, zip_file_path, input_file_path, processed_size=0, password=None):
@@ -1902,7 +1903,7 @@ class Steganographier:
                                                         processed_files=processed_files, 
                                                         output_cover_video_name_mode=output_cover_video_name_mode,
                                                         video_folder_path=self.video_folder_path)
-        self.log(f"实际隐写外壳文件：{cover_video_path}")
+        # self.log(f"实际隐写外壳文件：{cover_video_path}")
                 
         # 2. 隐写的临时zip文件名
         zip_file_path = os.path.join(os.path.dirname(input_file_path), os.path.basename(input_file_path) + f"_hidden_{processed_files}.zip")
@@ -1938,7 +1939,6 @@ class Steganographier:
                             self.log(f"开始隐写: {input_file_path}")
                             
                             # 步骤1: 写入完整的MP4数据
-                            self.log("写入MP4数据...")
                             for chunk in self.read_in_chunks(cover_file):
                                 output.write(chunk)
                                 processed_size += len(chunk)
@@ -1949,8 +1949,6 @@ class Steganographier:
                             self.log(f"MP4数据结束位置: {mp4_end_pos}")
                             
                             # 步骤2: 直接附加原始ZIP数据（不修改偏移量）
-                            self.log("写入原始ZIP数据...")
-                            
                             for chunk in self.read_in_chunks(zip_file):
                                 output.write(chunk)
                                 processed_size += len(chunk)
@@ -1961,7 +1959,6 @@ class Steganographier:
                             self.log(f"ZIP数据位置: {mp4_end_pos} - {zip_end_pos}")
                             
                             # 步骤3: 添加随机化数据
-                            self.log("添加随机化数据...")
                             self.add_randomization_data(output)
                             
                             final_size = output.tell()
@@ -2169,7 +2166,7 @@ class Steganographier:
         # 支持 mp4 和 mp4(zarchiver) 两种模式
         if self.type_option_var in ['mp4']:
             self.log(f'input_file_path: {input_file_path}')
-            self.log(f'cover_video_path: {cover_video_path}')
+            self.log(f'cover_video_path2: {cover_video_path}')
 
             # 输出文件名选择
             self.log(f'output_option: {output_option}')
@@ -2189,7 +2186,7 @@ class Steganographier:
 
         elif self.type_option_var in ['mp4(zarchiver)']:
             self.log(f'input_file_path: {input_file_path}')
-            self.log(f'cover_video_path: {cover_video_path}')
+            self.log(f'cover_video_path2: {cover_video_path}')
 
             # 输出文件名选择
             self.log(f'output_option: {output_option}')
@@ -2205,7 +2202,7 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_z{processed_files+1}.mp4')
-            self.log(f"output_file_path: {output_file_path}\n")   
+            self.log(f"output_file_path2: {output_file_path}\n")   
         
         elif self.type_option_var == 'mkv':
             # 输出文件名选择
@@ -2222,7 +2219,7 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mkv')
-            self.log(f"output_file_path: {output_file_path}")    
+            self.log(f"output_file_path2: {output_file_path}")    
         
         return output_file_path  
     
@@ -3503,7 +3500,7 @@ if __name__ == "__main__":
         show_console()
     # ================================
 
-    version_info = "1.3.7" # 版本信息
+    version_info = "1.3.8" # 版本信息
 
     # CLI模式参数传入
     parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染', add_help=False)
