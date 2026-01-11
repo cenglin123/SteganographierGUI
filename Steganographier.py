@@ -785,6 +785,7 @@ class SteganographierGUI:
         self.check_file_size_and_duration_warned = False
         self.auto_clear_after_complete = False  # 执行完成后自动清空窗口的选项
         self.delete_original_after_reveal = True  # 解除隐写后默认删除原始文件
+        self.auto_rename_on_conflict = False  # 解除隐写时遇到同名文件是否自动重命名
         self.cover_video_options = []
         
         self.hash_modifier_process = None
@@ -1043,9 +1044,20 @@ class SteganographierGUI:
         )
         self.delete_after_reveal_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
 
-        # 超链接放在右下角
-        self.github_link = ttk.Label(
+        self.auto_rename_var = tk.BooleanVar(value=self.auto_rename_on_conflict)
+        self.auto_rename_checkbox = tk.Checkbutton(
             link_check_row,
+            text="解除隐写重名自动改名",
+            variable=self.auto_rename_var,
+        )
+        self.auto_rename_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
+
+        # 超链接放在下一行
+        link_row = ttk.Frame(button_frame)
+        link_row.pack(fill="x", pady=2)
+
+        self.github_link = ttk.Label(
+            link_row,
             text="访问本程序 Github",
             foreground="blue",
             cursor="hand2"  # 鼠标悬停时显示手型光标
@@ -1348,7 +1360,8 @@ class SteganographierGUI:
                     input_file_path=input_file_path, 
                     password=self.password, 
                     type_option_var=self.type_option_var.get(),
-                    delete_original=delete_after_reveal
+                    delete_original=delete_after_reveal,
+                    auto_rename_on_conflict=self.auto_rename_var.get()
                 )
                 processed_files += 1
                 self.update_progress(processed_files, total_files)
@@ -1442,6 +1455,7 @@ class SteganographierGUI:
                 self.output_cover_video_name_mode_var = tk.StringVar(value=config.get('output_cover_video_name_mode', ''))
                 self.auto_clear_after_complete = config.get('auto_clear_after_complete', False)
                 self.delete_original_after_reveal = config.get('delete_original_after_reveal', True)
+                self.auto_rename_on_conflict = config.get('auto_rename_on_conflict', False)
 
     def save_config(self):
         config = {
@@ -1451,7 +1465,8 @@ class SteganographierGUI:
             'type_option': self.type_option_var.get(),
             'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get(),
             'auto_clear_after_complete': self.auto_clear_var.get(),
-            'delete_original_after_reveal': self.delete_after_reveal_var.get()
+            'delete_original_after_reveal': self.delete_after_reveal_var.get(),
+            'auto_rename_on_conflict': self.auto_rename_var.get()
         }
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=4)
@@ -1564,6 +1579,7 @@ class Steganographier:
         self.remaining_cover_video_files    = []              # 随机选择模式时的剩余外壳文件列表
         self.progress_callback              = None            # 进度条回调参数
         self.cover_video_path               = None            # 包含完整路径的外壳文件
+        self.auto_rename_on_conflict        = False           # 解除隐写时遇到同名文件是否自动重命名
 
     def init_log_file(self):
         """初始化日志文件"""
@@ -1662,6 +1678,79 @@ class Steganographier:
         else:                           # GUI模式
             if hasattr(self, 'log_callback') and self.log_callback:
                 self.log_callback(message)
+
+    def _resolve_conflict_path(self, output_file_path):
+        """根据配置自动生成不冲突的输出路径"""
+        if not self.auto_rename_on_conflict:
+            return output_file_path
+        if not os.path.exists(output_file_path):
+            return output_file_path
+
+        base, ext = os.path.splitext(output_file_path)
+        counter = 1
+        while True:
+            if ext:
+                candidate = f"{base} ({counter}){ext}"
+            else:
+                candidate = f"{base} ({counter})"
+            if not os.path.exists(candidate):
+                return candidate
+            counter += 1
+
+    def _maybe_log_rename(self, original_path, resolved_path):
+        if resolved_path != original_path:
+            self.log(f"检测到重名，自动重命名为: {os.path.basename(resolved_path)}")
+
+    def _extract_zip_members(self, zip_file, output_dir):
+        """通用ZIP解压流程，支持自动重命名"""
+        for name in zip_file.namelist():
+            clean_name = sanitize_path(name)
+            if not clean_name:
+                continue
+
+            output_file_path = os.path.join(output_dir, clean_name)
+
+            if name.endswith('/'):
+                try:
+                    os.makedirs(output_file_path, exist_ok=True)
+                except OSError:
+                    pass
+                continue
+
+            output_subdir = os.path.dirname(output_file_path)
+            if output_subdir:
+                os.makedirs(output_subdir, exist_ok=True)
+
+            resolved_path = self._resolve_conflict_path(output_file_path)
+            self._maybe_log_rename(output_file_path, resolved_path)
+
+            with zip_file.open(name) as source, open(resolved_path, 'wb') as target:
+                while True:
+                    chunk = source.read(8192)
+                    if not chunk:
+                        break
+                    target.write(chunk)
+
+    def _move_extracted_files(self, source_dir, output_dir):
+        """将目录内文件移动到目标目录，支持自动重命名"""
+        import shutil
+
+        for root, dirs, files in os.walk(source_dir):
+            rel_root = os.path.relpath(root, source_dir)
+            if rel_root == '.':
+                rel_root = ''
+            for file_name in files:
+                src_path = os.path.join(root, file_name)
+                rel_path = os.path.join(rel_root, file_name) if rel_root else file_name
+                dest_path = os.path.join(output_dir, rel_path)
+
+                dest_dir = os.path.dirname(dest_path)
+                if dest_dir:
+                    os.makedirs(dest_dir, exist_ok=True)
+
+                resolved_path = self._resolve_conflict_path(dest_path)
+                self._maybe_log_rename(dest_path, resolved_path)
+                shutil.move(src_path, resolved_path)
 
 
     def initialize_cover_video_files(self):
@@ -2299,11 +2388,13 @@ class Steganographier:
         
         return passwords
 
-    def reveal_file(self, input_file_path, password=None, type_option_var=None, delete_original=True):
+    def reveal_file(self, input_file_path, password=None, type_option_var=None, delete_original=True, auto_rename_on_conflict=None):
         """
         智能解除隐写函数 - 优先使用7-Zip高速解压
         """
         self.type_option_var = type_option_var
+        if auto_rename_on_conflict is not None:
+            self.auto_rename_on_conflict = auto_rename_on_conflict
 
         self.log(f"开始解除隐写: {input_file_path}")
         self.log(f"指定模式: {type_option_var}")
@@ -2561,12 +2652,21 @@ class Steganographier:
             # 解压所有ZIP
             for zf in zip_files:
                 self.log(f"解压: {os.path.basename(zf)}")
-                
+
+                unzip_dir = None
+                unzip_output_dir = output_dir
+                if self.auto_rename_on_conflict:
+                    try:
+                        unzip_dir = tempfile.mkdtemp(prefix='7z_unzip_', dir=output_dir)
+                    except (OSError, PermissionError):
+                        unzip_dir = tempfile.mkdtemp(prefix='7z_unzip_')
+                    unzip_output_dir = unzip_dir
+
                 cmd_unzip = [
                     self._7z_exe,
                     'x',
                     zf,
-                    f'-o{output_dir}',
+                    f'-o{unzip_output_dir}',
                     '-y',
                     '-mmt=on'
                 ]
@@ -2588,6 +2688,12 @@ class Steganographier:
                 if result2.returncode != 0:
                     self.log(f"解压失败: {result2.stderr}")
                     return False
+
+                if unzip_dir:
+                    try:
+                        self._move_extracted_files(unzip_dir, output_dir)
+                    finally:
+                        shutil.rmtree(unzip_dir, ignore_errors=True)
             
             self.log("7-Zip解压完成")
             return True
@@ -2660,7 +2766,10 @@ class Steganographier:
                             os.makedirs(output_dir, exist_ok=True)
                         except OSError:
                             pass
-                    
+
+                    resolved_path = self._resolve_conflict_path(output_file_path)
+                    self._maybe_log_rename(output_file_path, resolved_path)
+
                     # 只在开始解压每个文件时记录日志
                     if file_count > 5:  # 如果文件多，只显示简化信息
                         if current_file == 1 or current_file % 10 == 0 or current_file == file_count:
@@ -2669,7 +2778,7 @@ class Steganographier:
                         self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
                     
                     try:
-                        with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                        with zip_file.open(name) as source, open(resolved_path, 'wb') as output:
                             # 使用更大的缓冲区
                             while True:
                                 chunk = source.read(32 * 1024 * 1024)  # 32MB
@@ -2749,6 +2858,9 @@ class Steganographier:
                             os.makedirs(output_dir, exist_ok=True)
                         except OSError:
                             pass
+
+                    resolved_path = self._resolve_conflict_path(output_file_path)
+                    self._maybe_log_rename(output_file_path, resolved_path)
                     
                     # 只在开始解压每个文件时记录日志
                     if file_count > 5:  # 如果文件多，只显示简化信息
@@ -2758,7 +2870,7 @@ class Steganographier:
                         self.log(f"正在提取 [{current_file}/{file_count}]: {os.path.basename(output_file_path)}")
                     
                     try:
-                        with zip_file.open(name) as source, open(output_file_path, 'wb') as output:
+                        with zip_file.open(name) as source, open(resolved_path, 'wb') as output:
                             # 使用更大的缓冲区
                             while True:
                                 chunk = source.read(32 * 1024 * 1024)  # 32MB
@@ -2863,8 +2975,8 @@ class Steganographier:
                                                 file_list = zip_file.namelist()
                                                 log_func(f"ZIP文件包含: {file_list}")
                                                 
-                                                # 解压所有文件到输出目录
-                                                zip_file.extractall(output_dir)
+                                                # 解压所有文件到输出目录（支持自动重命名）
+                                                self._extract_zip_members(zip_file, output_dir)
                                                 success = True
                                                 log_func(f"成功解压，使用密码: {'(空密码)' if not password else password}")
                                                 break
@@ -3091,27 +3203,8 @@ class Steganographier:
                                 if not namelist:
                                     continue
                                 
-                                # 解压所有文件
-                                for name in namelist:
-                                    clean_name = sanitize_path(name)
-                                    if not clean_name:
-                                        continue
-                                    
-                                    output_file_path = os.path.join(output_dir, clean_name)
-                                    
-                                    if name.endswith('/'):
-                                        os.makedirs(output_file_path, exist_ok=True)
-                                        continue
-                                    
-                                    # 确保父目录存在
-                                    os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                    
-                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                        while True:
-                                            chunk = source.read(8192)
-                                            if not chunk:
-                                                break
-                                            target.write(chunk)
+                                # 解压所有文件（支持自动重命名）
+                                self._extract_zip_members(zip_file, output_dir)
                                 
                                 return True, f"使用密码 '{password}' 成功解压 (AES)"
                                 
@@ -3129,27 +3222,8 @@ class Steganographier:
                                 if not namelist:
                                     continue
                                 
-                                # 解压所有文件
-                                for name in namelist:
-                                    clean_name = sanitize_path(name)
-                                    if not clean_name:
-                                        continue
-                                    
-                                    output_file_path = os.path.join(output_dir, clean_name)
-                                    
-                                    if name.endswith('/'):
-                                        os.makedirs(output_file_path, exist_ok=True)
-                                        continue
-                                    
-                                    # 确保父目录存在
-                                    os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-                                    
-                                    with zip_file.open(name) as source, open(output_file_path, 'wb') as target:
-                                        while True:
-                                            chunk = source.read(8192)
-                                            if not chunk:
-                                                break
-                                            target.write(chunk)
+                                # 解压所有文件（支持自动重命名）
+                                self._extract_zip_members(zip_file, output_dir)
                                 
                                 return True, f"使用密码 '{password}' 成功解压 (Standard)"
                                 
@@ -3233,13 +3307,17 @@ class Steganographier:
                 return False
 
             output_path = os.path.join(os.path.dirname(input_file_path), attachments_name)
+            resolved_path = self._resolve_conflict_path(output_path)
+            self._maybe_log_rename(output_path, resolved_path)
+            output_path = resolved_path
+            output_name = os.path.basename(output_path)
             self.log(f"提取MKV附件: {output_path}")
             
             if not extract_attachment(input_file_path, output_path):
                 return False
 
             # 如果是ZIP文件，尝试解压
-            if attachments_name.endswith('.zip'):
+            if output_name.endswith('.zip'):
                 zip_path = output_path
                 self.log(f"解压ZIP文件: {zip_path}")
 
@@ -3248,7 +3326,7 @@ class Steganographier:
                         with pyzipper.AESZipFile(zip_path, 'r', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zip_file:
                             if test_password:
                                 zip_file.setpassword(test_password.encode())
-                            zip_file.extractall(os.path.dirname(input_file_path))
+                            self._extract_zip_members(zip_file, os.path.dirname(input_file_path))
 
                         os.remove(zip_path)
                         self.log(f"ZIP解压成功，使用密码: {test_password}")
@@ -3261,7 +3339,7 @@ class Steganographier:
                 self.log("所有密码尝试失败，无法解压ZIP文件")
                 return False
             else:
-                self.log(f"成功提取附件: {attachments_name}")
+                self.log(f"成功提取附件: {output_name}")
                 return True
 
         except Exception as e:
@@ -3288,8 +3366,10 @@ class Steganographier:
         self.log(f"批量解除隐写目录: {args.reveal_dir}")
         self.log(f"启用批量解除GUI: {args.reveal_dir_gui}")
         self.log(f"解除后保留原文件: {args.keep_original}")
+        self.log(f"解除隐写同名自动改名: {args.auto_rename}")
 
         self.type_option_var = args.type
+        self.auto_rename_on_conflict = args.auto_rename
         delete_original_after_reveal = not args.keep_original
         
         try:
@@ -3305,6 +3385,17 @@ class Steganographier:
             
             # 处理单个文件
             if not args.reveal:
+                # 检查 mkv 模式下文件大小是否超过 2GB
+                if args.type == 'mkv':
+                    input_size = get_file_or_folder_size(args.input)
+                    if input_size > 2 * 1024 * 1024 * 1024:
+                        # 创建临时根窗口以显示弹窗
+                        root = tk.Tk()
+                        root.withdraw()  # 隐藏主窗口
+                        messagebox.showerror("文件大小错误", "mkv 文件不能隐写超过 2GB 的文件")
+                        root.destroy()
+                        sys.exit(1)
+
                 if args.output:
                     output_file = args.output
                 else:
@@ -3320,7 +3411,8 @@ class Steganographier:
                 self.reveal_file(input_file_path=args.input, 
                                 password=args.password, 
                                 type_option_var=self.type_option_var,
-                                delete_original=delete_original_after_reveal)
+                                delete_original=delete_original_after_reveal,
+                                auto_rename_on_conflict=args.auto_rename)
         
         finally:
             # 确保日志文件被正确关闭
@@ -3397,7 +3489,8 @@ class Steganographier:
                         self.reveal_file(input_file_path=file_path, 
                                     password=None,
                                     type_option_var=None,
-                                    delete_original=delete_original)
+                                    delete_original=delete_original,
+                                    auto_rename_on_conflict=self.auto_rename_on_conflict)
                         
                         progress_window.add_detail(f"✓ 成功处理: {os.path.basename(file_path)}")
                         success_count += 1
@@ -3451,7 +3544,8 @@ class Steganographier:
                         self.reveal_file(input_file_path=file_path, 
                                     password=None,  # 使用默认密码文件
                                     type_option_var=None,
-                                    delete_original=delete_original)  # 自动检测文件类型
+                                    delete_original=delete_original,
+                                    auto_rename_on_conflict=self.auto_rename_on_conflict)  # 自动检测文件类型
                         self.log(f"处理 {file} 成功")
                         success_count += 1
                     except Exception as e:
@@ -3500,7 +3594,7 @@ if __name__ == "__main__":
         show_console()
     # ================================
 
-    version_info = "1.3.8" # 版本信息
+    version_info = "1.3.9" # 版本信息
 
     # CLI模式参数传入
     parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染', add_help=False)
@@ -3515,6 +3609,7 @@ if __name__ == "__main__":
     parser.add_argument('-rdgui', '--reveal-dir-gui', action='store_true', help='是否启用批量解除文件夹隐写时的独立gui窗口')
     parser.add_argument('-rb', '--reveal-batch', action='store_true', help='批量解除隐写（打开GUI并自动填充文件列表）')
     parser.add_argument('--keep-original', action='store_true', help='解除隐写后保留原始文件')
+    parser.add_argument('--auto-rename', action='store_true', help='解除隐写遇到同名文件时自动改名')
     parser.add_argument('-pf', '--password-file', default=None, help='指定密码文件路径')
     parser.add_argument('--no-log', action='store_true', help='禁用日志文件')
     parser.add_argument('-v', '--version', action='version', version=f'隐写者版本: {version_info}', help='显示版本号并退出')
