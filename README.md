@@ -7,11 +7,11 @@
 
 解压不了(|怎么是视频|密码错误|文件损坏|需要分卷|等)
 
-**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://www.win-rar.com/start.html?&L=0) **解压**
 
-**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://www.win-rar.com/start.html?&L=0) **解压**
 
-**改 MP4 后缀为 .zip 用** [**WinRAR**](https://wwmh.lanzoul.com/b004i2rjbi?pwd=c9ar) **解压**
+**改 MP4 后缀为 .zip 用** [**WinRAR**](https://www.win-rar.com/start.html?&L=0) **解压**
 
 WinRAR分享提取码c9ar
 
@@ -428,7 +428,6 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 ## 10. 下载链接
 
 [IPFS](https://k51qzi5uqu5dgkmeltawl5a7yfyrmb7gqrxivyqzp9cray1x05xlenbdfatkib.eth.sucks/) 
-[蓝奏云](https://wwmh.lanzoul.com/b004hu9ite) 
 [Github](https://github.com/cenglin123/SteganographierGUI/releases)
 
 
