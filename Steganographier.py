@@ -2037,19 +2037,31 @@ class Steganographier:
                             mp4_end_pos = output.tell()
                             self.log(f"MP4数据结束位置: {mp4_end_pos}")
                             
-                            # 步骤2: 直接附加原始ZIP数据（不修改偏移量）
+                            # 步骤2: 使用XOR加密后附加ZIP数据（防止签名特征被检测）
+                            xor_key = 0
+                            while xor_key == 0:
+                                xor_key = os.urandom(1)[0]
+
+                            zip_size = os.path.getsize(zip_file_path)
+                            xor_table = bytes(i ^ xor_key for i in range(256))
+
+                            # 写入格式标记(8字节) + XOR密钥(1字节) + ZIP大小(8字节大端序)
+                            output.write(b'\x89STG\x02\x00\x00\x00')
+                            output.write(bytes([xor_key]))
+                            output.write(struct.pack('>Q', zip_size))
+
                             for chunk in self.read_in_chunks(zip_file):
-                                output.write(chunk)
+                                output.write(chunk.translate(xor_table))
                                 processed_size += len(chunk)
                                 if self.progress_callback:
                                     self.progress_callback(processed_size, total_size_hidden)
-                            
+
                             zip_end_pos = output.tell()
-                            self.log(f"ZIP数据位置: {mp4_end_pos} - {zip_end_pos}")
-                            
-                            # 步骤3: 添加随机化数据
-                            self.add_randomization_data(output)
-                            
+                            self.log(f"XOR加密ZIP数据写入完成，位置: {mp4_end_pos} - {zip_end_pos}")
+
+                            # 步骤3: 添加MP4结尾标记（empty mdat box）
+                            output.write(struct.pack('>I4s', 8, b'mdat'))
+
                             final_size = output.tell()
                             self.log(f"最终文件大小: {final_size} bytes")
                             
@@ -2419,12 +2431,16 @@ class Steganographier:
 
         # 定义解压方法优先级
         extraction_methods = []
-        
+
+        # 对MP4文件，优先尝试XOR新格式（放在最前面，在7-Zip之前）
+        if file_extension in ['.mp4', '.m4v', '.mov']:
+            extraction_methods.append(('mp4_xor', "MP4 XOR格式提取（新格式）"))
+
         # ===== 优先使用7-Zip（如果存在）=====
         if os.path.exists(self._7z_exe):
-            extraction_methods.insert(0, ('7zip', "7-Zip高速解压"))
+            extraction_methods.append(('7zip', "7-Zip高速解压"))
             self.log("检测到7z.exe，将优先使用7-Zip解压")
-        
+
         # 根据文件类型添加其他方法
         if file_extension in ['.mp4', '.m4v', '.mov']:
             if type_option_var == 'mp4':
@@ -2481,8 +2497,11 @@ class Steganographier:
             self.log(f"尝试方法: {method_desc}")
             
             try:
+                if method_name == 'mp4_xor':
+                    success = self._try_mp4_xor_extraction(input_file_path, password_list, output_dir)
+
                 # ===== 7-Zip优先 =====
-                if method_name == '7zip':
+                elif method_name == '7zip':
                     # 尝试所有密码
                     for pwd in password_list:
                         self.log(f"7-Zip尝试密码: '{pwd}' (len: {len(pwd)})")
@@ -2490,7 +2509,7 @@ class Steganographier:
                             success = True
                             successful_method = f"{method_desc}（密码: {pwd}）"
                             break
-                    
+
                 elif method_name == 'mp4_trailing':
                     success = self._try_mp4_direct_extraction(input_file_path, password_list)
                     
@@ -2535,6 +2554,153 @@ class Steganographier:
             self.log("2. 密码错误")
             self.log("3. 文件损坏")
             self.log("4. 使用了不支持的隐写方法")
+
+    def _find_marker_in_file(self, file_path, marker):
+        """在文件中搜索指定字节序列，返回首次出现的绝对位置，未找到返回-1"""
+        marker_len = len(marker)
+        chunk_size = 8 * 1024 * 1024
+        overlap = marker_len - 1
+
+        with open(file_path, 'rb') as f:
+            prev_tail = b''
+            current_chunk_start = 0
+
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+
+                search_data = prev_tail + chunk
+                idx = search_data.find(marker)
+
+                if idx != -1:
+                    return current_chunk_start - len(prev_tail) + idx
+
+                prev_tail = search_data[-overlap:] if len(search_data) > overlap else search_data
+                current_chunk_start += len(chunk)
+
+        return -1
+
+    def _try_mp4_xor_extraction(self, input_file_path, password_list, output_dir):
+        """
+        从MP4文件中提取XOR加密的ZIP数据（新格式v2，用于规避签名扫描）
+        格式: [MP4数据][标记8字节][XOR密钥1字节][ZIP大小8字节][XOR加密的ZIP数据][mdat尾部8字节]
+        """
+        _MARKER = b'\x89STG\x02\x00\x00\x00'
+
+        try:
+            marker_pos = self._find_marker_in_file(input_file_path, _MARKER)
+
+            if marker_pos < 0:
+                self.log("未找到XOR格式标记，跳过新格式提取")
+                return False
+
+            self.log(f"找到XOR格式标记，位置: {marker_pos}")
+
+            file_size = os.path.getsize(input_file_path)
+            header_end = marker_pos + 8 + 1 + 8  # marker + key + size
+
+            if header_end > file_size:
+                self.log("XOR格式头部数据不完整，跳过")
+                return False
+
+            with open(input_file_path, 'rb') as f:
+                f.seek(marker_pos + 8)
+                xor_key = f.read(1)[0]
+                zip_size = struct.unpack('>Q', f.read(8))[0]
+                zip_data_start = f.tell()
+
+            self.log(f"XOR密钥: {xor_key}, ZIP大小: {zip_size} bytes")
+
+            if zip_data_start + zip_size > file_size:
+                self.log("ZIP大小超出文件范围，可能不是有效的XOR格式文件")
+                return False
+
+            xor_table = bytes(i ^ xor_key for i in range(256))
+
+            temp_zip_path = None
+            try:
+                try:
+                    tmp_fd, temp_zip_path = tempfile.mkstemp(suffix='.zip', dir=output_dir)
+                    os.close(tmp_fd)
+                except (OSError, PermissionError):
+                    tmp_fd, temp_zip_path = tempfile.mkstemp(suffix='.zip')
+                    os.close(tmp_fd)
+
+                self.log(f"正在解密ZIP数据到临时文件: {temp_zip_path}")
+
+                bytes_read = 0
+                with open(input_file_path, 'rb') as f_in, open(temp_zip_path, 'wb') as f_out:
+                    f_in.seek(zip_data_start)
+                    while bytes_read < zip_size:
+                        to_read = min(8 * 1024 * 1024, zip_size - bytes_read)
+                        chunk = f_in.read(to_read)
+                        if not chunk:
+                            break
+                        f_out.write(chunk.translate(xor_table))
+                        bytes_read += len(chunk)
+
+                self.log(f"ZIP解密完成，写入: {bytes_read} bytes")
+
+                for pwd in password_list:
+                    password_bytes = pwd.encode('utf-8') if pwd else None
+                    self.log(f"XOR格式尝试密码: '{pwd}'")
+
+                    try:
+                        with pyzipper.AESZipFile(temp_zip_path, 'r') as zip_file:
+                            if password_bytes:
+                                zip_file.setpassword(password_bytes)
+                            namelist = zip_file.namelist()
+                            if not namelist:
+                                continue
+                            test_file = next((n for n in namelist if not n.endswith('/')), None)
+                            if test_file:
+                                with zip_file.open(test_file) as tf:
+                                    tf.read(1024)
+                            self._extract_zip_members(zip_file, output_dir)
+                            self.log(f"XOR格式解压成功（AES），密码: '{pwd}'")
+                            return True
+                    except RuntimeError as e:
+                        if 'Bad password' in str(e) or 'password required' in str(e).lower():
+                            continue
+                    except Exception:
+                        pass
+
+                    try:
+                        with zipfile.ZipFile(temp_zip_path, 'r') as zip_file:
+                            if password_bytes:
+                                zip_file.setpassword(password_bytes)
+                            namelist = zip_file.namelist()
+                            if not namelist:
+                                continue
+                            test_file = next((n for n in namelist if not n.endswith('/')), None)
+                            if test_file:
+                                with zip_file.open(test_file) as tf:
+                                    tf.read(1024)
+                            self._extract_zip_members(zip_file, output_dir)
+                            self.log(f"XOR格式解压成功，密码: '{pwd}'")
+                            return True
+                    except RuntimeError as e:
+                        if 'Bad password' in str(e) or 'password required' in str(e).lower():
+                            continue
+                    except Exception:
+                        pass
+
+                self.log("XOR格式：所有密码尝试失败")
+                return False
+
+            finally:
+                if temp_zip_path and os.path.exists(temp_zip_path):
+                    try:
+                        os.unlink(temp_zip_path)
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            self.log(f"XOR格式提取出错: {e}")
+            import traceback
+            self.log(f"详细错误: {traceback.format_exc()}")
+            return False
 
     def _try_mp4_direct_extraction(self, input_file_path, password_list):
         """
