@@ -2037,30 +2037,32 @@ class Steganographier:
                             mp4_end_pos = output.tell()
                             self.log(f"MP4数据结束位置: {mp4_end_pos}")
                             
-                            # 步骤2: 使用XOR加密后附加ZIP数据（防止签名特征被检测）
-                            xor_key = 0
-                            while xor_key == 0:
-                                xor_key = os.urandom(1)[0]
-
+                            # 步骤2: 将ZIP数据封装进free原子（合法MP4结构，消除"末尾裸附ZIP"特征）
+                            # free原子是MP4规范内的合法填充类型，多数播放器和扫描器不会检测其内容
+                            # WinRAR从末尾反向找EOCD的机制仍能正常识别ZIP，保留改后缀直接解压功能
+                            padding_size = random.randint(64, 256)
+                            random_padding = os.urandom(padding_size)
                             zip_size = os.path.getsize(zip_file_path)
-                            xor_table = bytes(i ^ xor_key for i in range(256))
+                            free_payload = padding_size + zip_size
+                            free_atom_size = 8 + free_payload  # 4字节大小字段 + 4字节"free" + 载荷
 
-                            # 写入格式标记(8字节) + XOR密钥(1字节) + ZIP大小(8字节大端序)
-                            output.write(b'\x89STG\x02\x00\x00\x00')
-                            output.write(bytes([xor_key]))
-                            output.write(struct.pack('>Q', zip_size))
+                            if free_atom_size <= 0xFFFFFFFF:
+                                output.write(struct.pack('>I4s', free_atom_size, b'free'))
+                            else:
+                                # ZIP超过约4GB时使用64位扩展大小格式
+                                output.write(struct.pack('>I4s', 1, b'free'))
+                                output.write(struct.pack('>Q', free_atom_size))
+
+                            output.write(random_padding)
 
                             for chunk in self.read_in_chunks(zip_file):
-                                output.write(chunk.translate(xor_table))
+                                output.write(chunk)
                                 processed_size += len(chunk)
                                 if self.progress_callback:
                                     self.progress_callback(processed_size, total_size_hidden)
 
                             zip_end_pos = output.tell()
-                            self.log(f"XOR加密ZIP数据写入完成，位置: {mp4_end_pos} - {zip_end_pos}")
-
-                            # 步骤3: 添加MP4结尾标记（empty mdat box）
-                            output.write(struct.pack('>I4s', 8, b'mdat'))
+                            self.log(f"ZIP封装于free原子完成，位置: {mp4_end_pos} - {zip_end_pos}")
 
                             final_size = output.tell()
                             self.log(f"最终文件大小: {final_size} bytes")
