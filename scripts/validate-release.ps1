@@ -29,6 +29,8 @@ $requiredPaths = @(
     "context-menu/Uninstall-ContextMenu.ps1",
     "modules/favicon.ico",
     "modules/PW.txt",
+    "installer/SteganographierGUI.iss",
+    "installer/Languages/ChineseSimplified.isl",
     "tools/7z.exe",
     "tools/mkvmerge.exe",
     "tools/mkvextract.exe",
