@@ -502,6 +502,20 @@ def setup_console_streams():
             sys.stdout.reconfigure(encoding='utf-8')
         except:
             pass
+
+
+def load_version(base_path):
+    """Read the application version from the distribution's VERSION file."""
+    version_path = os.path.join(base_path, "VERSION")
+    try:
+        with open(version_path, "r", encoding="utf-8-sig") as version_file:
+            version = version_file.read().strip()
+    except OSError as exc:
+        raise RuntimeError(f"无法读取版本文件: {version_path}") from exc
+
+    if not version:
+        raise RuntimeError(f"版本文件为空: {version_path}")
+    return version
 # ===========================
 
 def sanitize_path(path: str) -> str:
@@ -3597,7 +3611,7 @@ if __name__ == "__main__":
         show_console()
     # ================================
 
-    version_info = "1.3.9" # 版本信息
+    version_info = load_version(application_path)
 
     # CLI模式参数传入
     parser = argparse.ArgumentParser(description='隐写者 CLI 作者: 层林尽染', add_help=False)

@@ -1,7 +1,6 @@
-altgraph==0.17.5
 hachoir==3.3.0
 natsort==8.4.0
-packaging==26.0
 pycryptodomex==3.23.0
 pyzipper==0.3.6
+psutil==6.1.1
 tkinterdnd2==0.3.0
