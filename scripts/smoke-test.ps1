@@ -10,6 +10,10 @@ $stage = (Resolve-Path -LiteralPath $StageDirectory).Path
 $requiredFiles = @(
     "SteganographierGUI.exe",
     "VERSION",
+    "01-安装隐写者到右键菜单.cmd",
+    "02-移除隐写者右键菜单.cmd",
+    "Install-ContextMenu.ps1",
+    "Uninstall-ContextMenu.ps1",
     "tkinterdnd2\tkdnd\win64\libtkdnd2.9.2.dll",
     "modules\favicon.ico",
     "modules\PW.txt",
@@ -18,7 +22,8 @@ $requiredFiles = @(
     "tools\mkvextract.exe",
     "tools\mkvinfo.exe",
     "tools\hash_modifier.exe",
-    "tools\captcha_generator.exe"
+    "tools\captcha_generator.exe",
+    "tools\launch_from_selection.ps1"
 )
 foreach ($relativePath in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $stage $relativePath) -PathType Leaf)) {

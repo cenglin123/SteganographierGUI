@@ -1,5 +1,6 @@
 /.github/workflows/ @cenglin123
 /scripts/ @cenglin123
+/context-menu/ @cenglin123
 /installer/ @cenglin123
 /SteganographierGUI.spec @cenglin123
 /VERSION @cenglin123

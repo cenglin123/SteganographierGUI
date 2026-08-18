@@ -23,6 +23,10 @@ $requiredPaths = @(
     "SteganographierGUI.spec",
     "requirements.txt",
     "requirements-build.txt",
+    "context-menu/01-安装隐写者到右键菜单.cmd",
+    "context-menu/02-移除隐写者右键菜单.cmd",
+    "context-menu/Install-ContextMenu.ps1",
+    "context-menu/Uninstall-ContextMenu.ps1",
     "modules/favicon.ico",
     "modules/PW.txt",
     "tools/7z.exe",
@@ -31,6 +35,7 @@ $requiredPaths = @(
     "tools/mkvinfo.exe",
     "tools/hash_modifier.exe",
     "tools/captcha_generator.exe",
+    "tools/launch_from_selection.ps1",
     "cover_video"
 )
 foreach ($relativePath in $requiredPaths) {

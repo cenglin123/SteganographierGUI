@@ -25,3 +25,4 @@ jobs:
           python -m py_compile Steganographier.py
           python Steganographier.py --help
           .\scripts\validate-release.ps1
+          .\scripts\test-context-menu-path.ps1

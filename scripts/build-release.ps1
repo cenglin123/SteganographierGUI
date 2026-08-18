@@ -54,6 +54,7 @@ VSVersionInfo(
     foreach ($directory in @("modules", "tools", "cover_video")) {
         Copy-Item -LiteralPath (Join-Path $repoRoot $directory) -Destination $stage -Recurse -Force
     }
+    Copy-Item -Path ".\context-menu\*" -Destination $stage -Force
     Copy-Item -LiteralPath ".\README.md" -Destination (Join-Path $stage "README.md")
     Copy-Item -LiteralPath ".\LICENSE" -Destination (Join-Path $stage "LICENSE")
     [IO.File]::WriteAllText((Join-Path $stage "VERSION"), "$version`n", (New-Object Text.UTF8Encoding($false)))

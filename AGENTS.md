@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`Steganographier.py` is the main Python entry point for both the Tkinter GUI and CLI. Runtime images, the empty password-file placeholder, and related resources live in `modules/`; bundled helper executables are in `tools/`; default MP4 covers are in `cover_video/`. Packaging is defined by `SteganographierGUI.spec` and `installer/SteganographierGUI.iss`. Release automation belongs in `scripts/` and `.github/workflows/`, while operational documentation belongs in `docs/`.
+`Steganographier.py` is the main Python entry point for both the Tkinter GUI and CLI. Runtime images, the empty password-file placeholder, and related resources live in `modules/`; bundled helpers are in `tools/`; default MP4 covers are in `cover_video/`. Right-click integration is maintained in `context-menu/`. Packaging is defined by `SteganographierGUI.spec` and `installer/SteganographierGUI.iss`. Release automation belongs in `scripts/` and `.github/workflows/`, while operational documentation belongs in `docs/`.
 
 ## Build, Test, and Development Commands
 
@@ -17,7 +17,7 @@ Run `python Steganographier.py` for the GUI or `python Steganographier.py --help
 
 ```powershell
 .\scripts\validate-release.ps1
-.\scripts\build-release.ps1 -ExpectedVersion 1.3.9
+.\scripts\build-release.ps1
 ```
 
 The first command validates source and bundled assets. The second builds and smoke-tests the portable package; add `-BuildInstaller` when Inno Setup 6 is installed.
