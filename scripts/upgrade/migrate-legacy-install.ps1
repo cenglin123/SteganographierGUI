@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     将本机 v1.3.8.x 旧安装（WinRAR 自解压手放，无卸载项）升级为由官方 Inno 安装包管理的 v1.3.10。
@@ -9,6 +9,50 @@
     前置快照已存在于 D:\Media\_archive\programfiles-runtime-snapshot-20260912（含 SHA256MANIFEST.txt）。
 #>
 $ErrorActionPreference = 'Stop'
+
+# 宿主自愈：本机 PATH 含大量第三方目录，双击运行时若被非 System32 的 powershell.exe 劫持，
+# 会出现 cmdlet 缺失等怪症。检测到即自动切换到权威宿主重新执行。
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $authoritativeHost = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $currentHost = if ($PSHome) { Join-Path $PSHome 'powershell.exe' } else { '' }
+    if ($currentHost -and (Test-Path -LiteralPath $authoritativeHost)) {
+        $same = $false
+        try { $same = (Resolve-Path $authoritativeHost).Path -ieq (Resolve-Path $currentHost).Path } catch {}
+        if (-not $same) {
+            Write-Warning "当前宿主 PSHome=$PSHome 非系统 PowerShell，切换权威宿主重跑……"
+            & $authoritativeHost -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+            exit $LASTEXITCODE
+        }
+    }
+}
+
+# PSModulePath 自愈：从 pwsh7 等父进程继承的模块路径含不存在/不兼容目录时，5.1 的按需
+# 自动加载会静默失效（Get-FileHash 等核心 cmdlet 消失）。以注册表权威值重建并过滤死路径。
+$sysModules = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'
+$mpParts = @(
+    (Get-ItemProperty 'HKCU:\Environment' -EA SilentlyContinue).PSModulePath,
+    (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -EA SilentlyContinue).PSModulePath,
+    $sysModules
+) | Where-Object { $_ } | ForEach-Object { $_ -split ';' } | Where-Object { $_ -and (Test-Path $_) }
+$env:PSModulePath = ($mpParts | Select-Object -Unique) -join ';'
+
+# 核心 cmdlet 缺失时先显式加载模块，仍失败则给出可执行指引。
+foreach ($needed in @('Get-FileHash', 'Start-Process', 'Rename-Item')) {
+    if (-not (Get-Command $needed -ErrorAction SilentlyContinue)) {
+        Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management -ErrorAction SilentlyContinue
+    }
+    if (-not (Get-Command $needed -ErrorAction SilentlyContinue)) {
+        throw "缺少 cmdlet '$needed'（PSHome=$PSHome，PSModulePath=$env:PSModulePath）。请 Win+R 输入 powershell 回车打开系统 PowerShell，set-location 到本目录后运行 .\migrate-legacy-install.ps1（管理员）。"
+    }
+}
+
+# robocopy 预解析绝对路径（32/64 位视图下裸名解析可能失败）
+$RoboCopy = @(
+    (Join-Path $env:SystemRoot 'System32\robocopy.exe'),
+    (Join-Path $env:SystemRoot 'Sysnative\robocopy.exe'),
+    (Join-Path $env:SystemRoot 'SysWOW64\robocopy.exe')
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $RoboCopy) { throw '找不到 robocopy.exe。' }
 
 # ===== 可调参数 =====
 $InstallDir   = 'C:\Program Files\SteganographierGUI'
@@ -52,7 +96,7 @@ foreach ($item in @('modules\PW.txt', 'config.json')) {
     }
 }
 if (Test-Path -LiteralPath (Join-Path $InstallDir 'logs')) {
-    robocopy (Join-Path $InstallDir 'logs') (Join-Path $bak 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
+    & $RoboCopy (Join-Path $InstallDir 'logs') (Join-Path $bak 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
     if ($LASTEXITCODE -gt 7) { throw "logs 备份失败 (robocopy exit=$LASTEXITCODE)" }
     $global:LASTEXITCODE = 0
 }
@@ -78,6 +122,8 @@ $extraKeys = @(
     'HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\modifyHash',
     'HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\openHashModifier',
     'HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\reveal',
+    # 老命名遗留（本机实测存在，现行 Uninstall 清单没有它）
+    'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\revealFile',
     # HKCR 联合视图写入可能分裂到 HKCU 镜像，一并清掉；随后 Install 以 HKLM 权威重建
     'HKCU\Software\Classes\*\shell\Steganographier',
     'HKCU\Software\Classes\Directory\shell\Steganographier',
@@ -123,7 +169,7 @@ foreach ($item in @('modules\PW.txt', 'config.json')) {
     if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $InstallDir $item) -Force; Write-Host "    restored: $item" }
 }
 if (Test-Path -LiteralPath (Join-Path $bak 'logs')) {
-    robocopy (Join-Path $bak 'logs') (Join-Path $InstallDir 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
+    & $RoboCopy (Join-Path $bak 'logs') (Join-Path $InstallDir 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
     $global:LASTEXITCODE = 0
     Write-Host '    restored: logs\'
 }
