@@ -32,3 +32,24 @@ pwsh scripts/sync-latest-release.ps1 -DestinationRoot "<distribution-root>"
 ```
 
 The sync script downloads the latest public Release into `releases\vX.Y.Z`, verifies every supplied SHA-256 checksum, and writes the active tag to `CURRENT`. It never builds from or overwrites arbitrary files in the distribution root.
+
+Constraints of the mirror track: it only mirrors the *latest* public Release (the script pins `/releases/latest`), and it hard-fails when that Release lacks `SHA256SUMS.txt` — true for every release before v1.3.10. Do not hand-fill historical versions into the mirror tree; retrieve them from local archives instead and label them as unverified.
+
+## Upgrading a machine installed by the legacy SFX method
+
+Installs dropped by the old WinRAR-SFX flow have no uninstall entry and mix runtime user data into the program directory. Before replacing such an install:
+
+1. Snapshot the whole program directory (copy + SHA-256 manifest) outside the drive the new install targets.
+2. Preserve the three runtime-only items that must survive the upgrade: `modules\PW.txt` (real password book — the installer ships the empty placeholder and would overwrite it), `config.json`, and `logs\`.
+3. Rename the old directory aside (do not delete it yet), run the official installer fresh, restore the preserved items into `{app}`, then verify context-menu entries and shortcuts point at the new executable name (`SteganographierGUI.exe`, capital I).
+4. Remove the renamed old directory only after the new install passes a smoke check.
+
+## Known historical inconsistencies (do not "fix")
+
+- Tags `v1.3.8` and `v1.3.9` are lightweight tags on the same commit (`b307541`); their trees predate VERSION/scripts/CI, so re-publishing either tag cannot succeed. Leave them alone.
+- The `v1.3.8` Release carries three manually uploaded variants (`.0`/`.1`/`.2`); the `v1.3.9` Release carries an asset named `..._v1.3.8_portable.zip`. Only v1.3.10+ has `SHA256SUMS.txt`.
+- Never move, delete, or force-push existing release tags. New facts belong in `CHANGELOG.md`.
+
+## Tag hygiene (enforced)
+
+`scripts/validate-release.ps1 -Tag <tag>` asserts that a release tag is annotated (`git cat-file -t` must report `tag`) and that `VERSION` exists inside the tagged tree and matches the tag name. Lightweight tags — all those before v1.3.10 — are grandfathered legacy; every new tag must be created with `git tag -a`.

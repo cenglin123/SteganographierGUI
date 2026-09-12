@@ -55,6 +55,22 @@ try {
     if ($reportedVersion -notmatch [regex]::Escape($version)) {
         throw "Application reported '$reportedVersion', expected version '$version'."
     }
+
+    if ($Tag) {
+        # Release tags must be annotated and their tree must carry a matching VERSION.
+        # Legacy lightweight tags (all before v1.3.10) are grandfathered; see docs/RELEASING.md.
+        $tagType = (git cat-file -t $Tag 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $tagType) {
+            throw "Tag '$Tag' does not exist locally; fetch it or create it with 'git tag -a'."
+        }
+        if ($tagType -ne 'tag') {
+            throw "Tag '$Tag' is lightweight ('$tagType'); release tags must be annotated."
+        }
+        $taggedVersion = (git show "${Tag}:VERSION" 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $taggedVersion -ne $version) {
+            throw "VERSION inside tag '$Tag' is '$taggedVersion', expected '$version'."
+        }
+    }
 }
 finally {
     Pop-Location

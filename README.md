@@ -48,6 +48,15 @@
 
 ## 更新
 
+**2026/08/18 更新 1.3.10 版本**（完整记录见 [CHANGELOG.md](CHANGELOG.md)）
+
+1. 解除隐写遇到同名文件时可自动重命名（GUI 新增勾选项，CLI 提供 `--auto-rename`）。
+2. CLI 模式不再依赖 Tkinter，无图形库环境也可直接使用命令行功能。
+3. 右键菜单安装/卸载脚本全面重写，支持安装路径包含空格、中文及 `!` 等特殊字符。
+4. 发行包改由 GitHub Actions 自动构建，附带 SHA256SUMS 校验文件；自 v1.3.10 起官方包不再内置 DownKyi（B站视频下载工具），请按上文 §5.2 的链接自行获取。
+
+---
+
 **2025/06/28 更新 1.3.1 版本**
 
 新增工作模式 mp4(zarchiver) ，此模式生成的隐写文件可以被 zarchiver 及 [解TMD压](https://cangku.moe/archives/216302) 等从开头扫描压缩文件的解压软件解压，但是无法被从尾部扫描压缩包的 WinRAR 解压，可根据情况使用。
@@ -284,6 +293,8 @@ copy /b "图片.jpg" + "压缩包.zip" "生成目标.jpg"
 
 **隐写外壳下载工具**（B站视频下载工具）
 [https://github.com/leiurayer/downkyi](https://github.com/leiurayer/downkyi)
+
+> 自 v1.3.10 起官方发行包不再内置该工具（历史版本曾随包附带），请从上方链接自行下载；其与本项目的关系见 [docs/THIRD-PARTY-DOWNKYI.md](docs/THIRD-PARTY-DOWNKYI.md)。
 
 建议的下载参数，画质可以选择 480P 以下，通常不会很糊；但音质建议中质量，否则糊得太明显容易引起怀疑；视频编码选择 H.265 压缩率更高，视频体积更小
 

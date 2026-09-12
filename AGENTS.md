@@ -2,7 +2,14 @@
 
 ## Project Structure & Module Organization
 
-`Steganographier.py` is the main Python entry point for both the Tkinter GUI and CLI. Runtime images, the empty password-file placeholder, and related resources live in `modules/`; bundled helpers are in `tools/`; default MP4 covers are in `cover_video/`. Right-click integration is maintained in `context-menu/`. Packaging is defined by `SteganographierGUI.spec` and `installer/SteganographierGUI.iss`. Release automation belongs in `scripts/` and `.github/workflows/`, while operational documentation belongs in `docs/`.
+`Steganographier.py` is the main Python entry point for both the Tkinter GUI and CLI. Runtime images, the empty password-file placeholder, and related resources live in `modules/`; bundled helpers are in `tools/` (`tools/legacy/` preserves retired runtime scripts that old installs may still reference); default MP4 covers are in `cover_video/`. Right-click integration is maintained in `context-menu/`. Packaging is defined by `SteganographierGUI.spec` and `installer/SteganographierGUI.iss`. Release automation belongs in `scripts/` and `.github/workflows/`, while operational documentation belongs in `docs/`.
+
+## Deployment Rules (hard constraints)
+
+- The git repository is the single source of truth for all build inputs. Local packaging folders are mirrors of published assets, never build inputs (see `docs/RELEASING.md`).
+- Never copy files into a Windows installation directory by hand. An install must come from the official installer (which registers an uninstall entry) or from the portable ZIP mirror created by `scripts/sync-latest-release.ps1`. The legacy WinRAR-SFX drop method is deprecated: it leaves no uninstaller and caused version drift.
+- `modules/PW.txt` inside an installed program directory is user data (a real password book), unlike the empty placeholder tracked in this repository. Upgrades and reinstalls must migrate it, never overwrite it with the placeholder. The same applies to `config.json` and `logs/`.
+- Historical tags are immutable: never delete, move, force-push, or retag existing release tags, even inconsistent ones such as v1.3.8/v1.3.9 pointing at one commit. Document known-dirty facts instead of repairing them.
 
 ## Build, Test, and Development Commands
 
