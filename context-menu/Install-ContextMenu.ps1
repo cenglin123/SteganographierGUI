@@ -80,7 +80,12 @@ $pathExists = $pathEntries | Where-Object {
 }
 if (-not $pathExists -and $PSCmdlet.ShouldProcess($toolsDirectory, "Add tools directory to the machine PATH")) {
     $newMachinePath = (@($pathEntries) + $toolsDirectory) -join ";"
-    [Environment]::SetEnvironmentVariable("Path", $newMachinePath, "Machine")
+    # SetEnvironmentVariable writes REG_SZ and silently downgrades a REG_EXPAND_SZ Path.
+    # Preserve the original value kind (and %VAR% tokens) by writing the key directly.
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    $kind = (Get-Item $key).GetValueKind('Path')
+    Set-ItemProperty -LiteralPath $key -Name Path -Value $newMachinePath -Type $kind
+    & cmd.exe /c 'rundll32.exe user32.dll,UpdatePerUserSystemParameters 1,True >nul 2>&1' | Out-Null
 }
 
 $commandStore = "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell"

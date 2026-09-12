@@ -64,7 +64,12 @@ $remainingEntries = @($machinePath -split ";" | Where-Object {
     $entry -and ([Environment]::ExpandEnvironmentVariables($entry.Trim('"')).TrimEnd("\")) -ine $normalizedTools
 })
 if ($PSCmdlet.ShouldProcess($toolsDirectory, "Remove tools directory from the machine PATH")) {
-    [Environment]::SetEnvironmentVariable("Path", ($remainingEntries -join ";"), "Machine")
+    # SetEnvironmentVariable writes REG_SZ and silently downgrades a REG_EXPAND_SZ Path.
+    # Preserve the original value kind (and %VAR% tokens) by writing the key directly.
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    $kind = (Get-Item $key).GetValueKind('Path')
+    Set-ItemProperty -LiteralPath $key -Name Path -Value ($remainingEntries -join ";") -Type $kind
+    & cmd.exe /c 'rundll32.exe user32.dll,UpdatePerUserSystemParameters 1,True >nul 2>&1' | Out-Null
 }
 
 $stegLauncher = Join-Path $toolsDirectory "steg.cmd"
