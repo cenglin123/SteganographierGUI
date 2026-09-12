@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess = $true)]
+﻿[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallRoot
@@ -18,6 +18,24 @@ if (-not $WhatIfPreference -and -not (Test-Administrator)) {
     throw "Run this script as administrator."
 }
 
+# Delete one registry key tolerantly: absent key is success, any other failure throws.
+# Why the cmd.exe wrapper: on Windows PowerShell 5.1, ANY capture of native stderr
+# (2>$null, 2>&1, 2>file) under an outer ErrorActionPreference='Stop' is promoted to a
+# terminating NativeCommandError. Merging stderr into stdout inside cmd (/c "... 2>&1")
+# keeps it on the stdout stream and out of harm's way. Verified empirically 2026-09-12.
+# NOTE: reg.exe returns exit 1 for BOTH "key not found" and real failures, so the merged
+# text decides: only the localized "not found" message counts as absent; access denied or
+# anything else still throws.
+function Remove-RegistryKeyTolerant {
+    param([string]$Key)
+    $output = & cmd.exe /c "reg delete `"$Key`" /f 2>&1"
+    $code = $LASTEXITCODE
+    $text = ($output | Out-String)
+    if ($text -match 'unable to find|找不到') { return 'absent' }
+    if ($code -eq 0) { return 'deleted' }
+    throw "reg.exe failed for '$Key' with exit code $code : $text"
+}
+
 $keys = @(
     "HKCR\*\shell\Steganographier",
     "HKCR\Directory\shell\Steganographier",
@@ -32,10 +50,10 @@ $keys = @(
 )
 foreach ($key in $keys) {
     if ($PSCmdlet.ShouldProcess($key, "Delete registry key")) {
-        & reg.exe delete $key /f 2>$null | Out-Null
-        if ($LASTEXITCODE -notin @(0, 1)) {
-            throw "reg.exe failed for '$key' with exit code $LASTEXITCODE."
-        }
+        # Absent keys are an expected state (idempotent uninstall); only real failures throw.
+        # Surface the result so a run is auditable without guessing from exit codes.
+        $result = Remove-RegistryKeyTolerant -Key $key
+        Write-Host ("  reg: {0,-95} {1}" -f $key, $result)
     }
 }
 

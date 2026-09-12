@@ -54,6 +54,15 @@ $RoboCopy = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $RoboCopy) { throw '找不到 robocopy.exe。' }
 
+# robocopy 输出走 stdout，在 EAP=Stop 下统一经 cmd.exe 合并 stderr；退出码 0-7 为成功族。
+function Invoke-RobocopyMirror {
+    param([string]$Source, [string]$Destination)
+    $out = & cmd.exe /c "`"$RoboCopy`" `"$Source`" `"$Destination`" /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS 2>&1"
+    $code = $LASTEXITCODE
+    if ($code -ge 8) { throw "robocopy '$Source' -> '$Destination' failed with exit $code : $(($out | Out-String).Trim())" }
+    return $code
+}
+
 # ===== 可调参数 =====
 $InstallDir   = 'C:\Program Files\SteganographierGUI'
 $OldName      = 'C:\Program Files\SteganographierGUI.old-1382'
@@ -79,6 +88,9 @@ Assert-Admin
 
 # --- 0. 校验安装包哈希 ---
 Step '校验官方安装包 SHA-256'
+if (-not (Test-Path -LiteralPath $SetupExe)) {
+    throw "安装包不存在：$SetupExe（可能又被 Defender 拦截；确认 D:\Media\releases 在排除列表中后重新下载）"
+}
 if ((Get-FileHash -LiteralPath $SetupExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $SetupSha256) {
     throw "安装包哈希与 GitHub Release v1.3.10 的 SHA256SUMS.txt 不符：$SetupExe"
 }
@@ -96,9 +108,7 @@ foreach ($item in @('modules\PW.txt', 'config.json')) {
     }
 }
 if (Test-Path -LiteralPath (Join-Path $InstallDir 'logs')) {
-    & $RoboCopy (Join-Path $InstallDir 'logs') (Join-Path $bak 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
-    if ($LASTEXITCODE -gt 7) { throw "logs 备份失败 (robocopy exit=$LASTEXITCODE)" }
-    $global:LASTEXITCODE = 0
+    $null = Invoke-RobocopyMirror (Join-Path $InstallDir 'logs') (Join-Path $bak 'logs')
 }
 Write-Host "    备份位置：$bak"
 
@@ -133,10 +143,31 @@ $extraKeys = @(
     'HKLM\SOFTWARE\Classes\Directory\shell\Steganographier',
     'HKLM\SOFTWARE\Classes\Directory\Background\shell\openSteganographier'
 )
+# 原生 stderr 陷阱：PS 5.1 在外层 EAP=Stop 下，任何对原生命令 stderr 的捕获（2>$null、
+# 2>&1、2>file）都会升级为终止性异常。统一经 cmd.exe 内部把 stderr 合并进 stdout 规避。
+$RegExe = Join-Path $env:SystemRoot 'System32\reg.exe'
+if (-not (Test-Path -LiteralPath $RegExe)) { throw '找不到 reg.exe。' }
+
 foreach ($k in $extraKeys) {
-    & reg.exe export $k "$bak\reg-backup-$(($k -split '\\')[-1]).reg" /y 2>$null | Out-Null
-    & reg.exe delete $k /f 2>$null | Out-Null
-    Write-Host ("    {0} : {1}" -f $k, $(if ($LASTEXITCODE -eq 0) {'deleted'} else {'absent/skip'}))
+    $leaf = ($k -split '\\')[-1]
+    $parentLeaf = ($k -split '\\')[-2]
+    $view = if ($k -match 'WOW6432Node') {'wow'} else {'x64'}
+    & cmd.exe /c "`"$RegExe`" export `"$k`" `"$bak\reg-backup-$view-$parentLeaf--$leaf.reg`" /y >nul 2>&1" | Out-Null
+    $exported = $LASTEXITCODE -eq 0
+    $delOut = & cmd.exe /c "`"$RegExe`" delete `"$k`" /f 2>&1"
+    $code = $LASTEXITCODE
+    $text = ($delOut | Out-String)
+    # reg.exe exit 1 有歧义（"找不到键"与真错误同为 1），以合并后的文本判定：
+    if ($text -match 'unable to find|找不到') {
+        $status = 'absent/skip'
+    } elseif ($code -eq 0) {
+        $status = 'deleted'
+    } elseif ($exported) {
+        throw "reg delete failed for '$k' (exit $code): $text"
+    } else {
+        $status = 'absent/skip'
+    }
+    Write-Host ("    {0} : {1}" -f $k, $status)
     $global:LASTEXITCODE = 0
 }
 
@@ -147,7 +178,11 @@ if ($userPath) {
     $kept = @($userPath -split ';' | Where-Object { $_.Trim().Trim('"').TrimEnd('\') -ine (Join-Path $InstallDir 'tools') })
     $newVal = $kept -join ';'
     if ($newVal -ne $userPath) {
-        & reg.exe add 'HKCU\Environment' /v Path /t REG_EXPAND_SZ /d $newVal /f | Out-Null
+        # 必须走 PowerShell 直写注册表：cmd.exe 会把值里的 %VAR% 先展开再传给 reg.exe，
+        # 破坏 REG_EXPAND_SZ 语义。Set-ItemProperty 指定 ExpandString 类型可保真。
+        Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name Path -Value $newVal -Type ExpandString
+        $check = (Get-Item 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        if ($check -cne $newVal) { throw 'User PATH 写入后校验不一致。' }
         Write-Host '    User PATH 已更新（保持 REG_EXPAND_SZ 类型）'
     } else { Write-Host '    User PATH 无需改动' }
 }
@@ -159,8 +194,16 @@ if (Test-Path -LiteralPath $InstallDir) { Rename-Item -LiteralPath $InstallDir -
 
 # --- 6. 静默全新安装 ---
 Step '运行官方 v1.3.10 安装包（静默）'
+if (-not (Test-Path -LiteralPath $SetupExe)) { throw "安装包不存在：$SetupExe" }
 $p = Start-Process -FilePath $SetupExe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
-if ($p.ExitCode -ne 0) { throw "installer 退出码 $($p.ExitCode)；旧目录仍在 $OldName，可改回原名回滚。" }
+if ($p.ExitCode -ne 0) {
+    # 回滚：把旧目录改回去，保证机器可用
+    if ((Test-Path -LiteralPath $OldName) -and -not (Test-Path -LiteralPath $InstallDir)) {
+        Rename-Item -LiteralPath $OldName -NewName (Split-Path -Leaf $InstallDir)
+        Write-Warning 'installer 失败，已自动把旧目录改回原位（右键菜单尚未恢复，可重跑本脚本）。'
+    }
+    throw "installer 退出码 $($p.ExitCode)。"
+}
 
 # --- 7. 迁移运行时用户数据（安装包里的是占位符，必须覆盖回去） ---
 Step '迁移 PW.txt / config.json / logs 到新安装'
@@ -169,14 +212,16 @@ foreach ($item in @('modules\PW.txt', 'config.json')) {
     if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $InstallDir $item) -Force; Write-Host "    restored: $item" }
 }
 if (Test-Path -LiteralPath (Join-Path $bak 'logs')) {
-    & $RoboCopy (Join-Path $bak 'logs') (Join-Path $InstallDir 'logs') /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
-    $global:LASTEXITCODE = 0
+    $null = Invoke-RobocopyMirror (Join-Path $bak 'logs') (Join-Path $InstallDir 'logs')
     Write-Host '    restored: logs\'
 }
 
 # --- 8. 重装右键菜单（新路径、新 exe 名） ---
 Step '运行 Install-ContextMenu.ps1'
 & (Join-Path $RepoRoot 'context-menu\Install-ContextMenu.ps1') -InstallRoot $InstallDir
+
+# --- 8b. 刷新 Explorer，让新右键菜单立即生效（HKCR shell 变更默认要重启才可见） ---
+Stop-Process -Name explorer -Force -EA SilentlyContinue   # Explorer 自动重启，任务栏会闪一下
 
 # --- 9. 修快捷方式指向新 exe ---
 Step '修正桌面/开始菜单快捷方式'
@@ -199,7 +244,7 @@ foreach ($lnk in $links) {
 Step '冒烟验证'
 $newExe = Join-Path $InstallDir 'SteganographierGUI.exe'
 if (-not (Test-Path -LiteralPath $newExe)) { throw '新主程序不存在！' }
-$ver = (& $newExe --version 2>&1 | Out-String).Trim()
+$ver = (& cmd.exe /c "`"$newExe`" --version 2>&1" | Out-String).Trim()
 Write-Host "    exe --version => $ver"
 if ($ver -notmatch '1\.3\.10') { throw '版本输出不含 1.3.10' }
 $pwSize = (Get-Item -LiteralPath (Join-Path $InstallDir 'modules\PW.txt')).Length

@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess = $true)]
+﻿[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallRoot
@@ -49,9 +49,14 @@ function Set-RegistryString {
     $arguments += @("/t", "REG_SZ", "/d", $Value, "/f")
 
     if ($PSCmdlet.ShouldProcess($Key, "Set registry value '$Name' to '$Value'")) {
-        & reg.exe @arguments | Out-Null
+        # cmd.exe wrapper: on PS 5.1 an outer ErrorActionPreference='Stop' promotes any
+        # captured native stderr (2>$null / 2>&1) to a terminating NativeCommandError;
+        # merging into stdout inside cmd avoids that. Also fixes bare reg.exe resolution
+        # under the 32-bit file-system redirector.
+        $argLine = ($arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+        $output = & cmd.exe /c "reg $argLine 2>&1"
         if ($LASTEXITCODE -ne 0) {
-            throw "reg.exe failed for '$Key' with exit code $LASTEXITCODE."
+            throw "reg.exe failed for '$Key' with exit code $LASTEXITCODE : $(($output | Out-String).Trim())"
         }
     }
 }
