@@ -1,4 +1,4 @@
-param([string]$FilePath)
+ï»¿param([string]$FilePath)
 
 $hashModifierPath = Join-Path $PSScriptRoot "hash_modifier.exe"
 
@@ -19,19 +19,19 @@ try {
     $logPath = Join-Path $PSScriptRoot "hash_modifier_log.txt"
     $output = & $hashModifierPath $FilePath 2>&1 | Out-String
     $exitCode = $LASTEXITCODE
-    $log = "Ö´ĞĞÊ±¼ä: $(Get-Date)`n"
-    $log += "ÃüÁî: $hashModifierPath $FilePath`n"
-    $log += "ÍË³ö´úÂë: $exitCode`n"
-    $log += "Êä³ö:`n$output`n"
+    $log = "æ‰§è¡Œæ—¶é—´: $(Get-Date)`n"
+    $log += "å‘½ä»¤: $hashModifierPath $FilePath`n"
+    $log += "é€€å‡ºä»£ç : $exitCode`n"
+    $log += "è¾“å‡º:`n$output`n"
     $log += "--------------------------------------------------`n"
     $log | Out-File -Append -FilePath $logPath
     if ($exitCode -eq 0 -and $output -match "Modified file hash^|Hash modification completed") {
-        Show-Notification -Title "¹şÏ£ÖµĞŞ¸Ä" -Message "²Ù×÷ÒÑ³É¹¦Íê³É¡£ÎÄ¼ş¹şÏ£ÖµÒÑĞŞ¸Ä¡£"
+        Show-Notification -Title "å“ˆå¸Œå€¼ä¿®æ”¹" -Message "æ“ä½œå·²æˆåŠŸå®Œæˆã€‚æ–‡ä»¶å“ˆå¸Œå€¼å·²ä¿®æ”¹ã€‚"
     } else {
-        Show-Notification -Title "¹şÏ£ÖµĞŞ¸Ä" -Message "²Ù×÷¿ÉÄÜÎ´³É¹¦Íê³É¡£Çë¼ì²éÈÕÖ¾ÎÄ¼şÁË½âÏêÇé¡£"
+        Show-Notification -Title "å“ˆå¸Œå€¼ä¿®æ”¹" -Message "æ“ä½œå¯èƒ½æœªæˆåŠŸå®Œæˆã€‚è¯·æ£€æŸ¥æ—¥å¿—æ–‡ä»¶äº†è§£è¯¦æƒ…ã€‚"
     }
 } catch {
     $errorMessage = $_.Exception.Message
-    Show-Notification -Title "¹şÏ£ÖµĞŞ¸Ä" -Message "·¢Éú´íÎó¡£ÏêÏ¸ĞÅÏ¢ÒÑ¼ÇÂ¼µ½ÈÕÖ¾ÎÄ¼ş¡£"
-    "´íÎó: $errorMessage" | Out-File -Append -FilePath $logPath
+    Show-Notification -Title "å“ˆå¸Œå€¼ä¿®æ”¹" -Message "å‘ç”Ÿé”™è¯¯ã€‚è¯¦ç»†ä¿¡æ¯å·²è®°å½•åˆ°æ—¥å¿—æ–‡ä»¶ã€‚"
+    "é”™è¯¯: $errorMessage" | Out-File -Append -FilePath $logPath
 }
