@@ -172,18 +172,34 @@ Assert-True ([bool]$threwMessage) "an invoker that threw did not propagate a fai
 Assert-True ($threwMessage -match 'Contents may have changed') "an invoker that threw did not warn that contents may have changed: $threwMessage"
 
 # --- 5. Every key the uninstaller deletes must already be approved ---------------------
-# Pure parse: extract the $keys array literal from the uninstall script and require each
-# entry to be an approved target. If the uninstaller ever grows a key the guardrail has not
-# approved, the guarded deletion would throw at runtime; this catches that at build time.
+# Pure parse: extract the key arrays each consumer declares and require the allowlist to be
+# EXACTLY their union. Minimality has two halves: a key that is deleted but not approved
+# fails at runtime, and a key that is approved but never deleted is unnecessary attack
+# surface. Structural "leaf set" checks alone cannot catch either kind of drift.
+function Get-DeclaredKeyArray {
+    param([string]$Path, [string]$AnchorPattern, [string]$What)
+    Assert-True (Test-Path -LiteralPath $Path) "expected consumer script is missing: $Path"
+    $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $block = [regex]::Match($text, $AnchorPattern)
+    Assert-True ($block.Success) "could not locate the $What key array in $(Split-Path $Path -Leaf)"
+    return @([regex]::Matches($block.Groups[1].Value, '["'']([^"'']+)["'']') | ForEach-Object { $_.Groups[1].Value })
+}
+
 $uninstallPath = Join-Path $repoRoot "context-menu\Uninstall-ContextMenu.ps1"
 $uninstallText = Get-Content -LiteralPath $uninstallPath -Raw -Encoding UTF8
-$keysBlock = [regex]::Match($uninstallText, '(?s)\$keys\s*=\s*@\((.*?)\)')
-Assert-True ($keysBlock.Success) "could not locate the `$keys array in Uninstall-ContextMenu.ps1"
-$uninstallKeys = @([regex]::Matches($keysBlock.Groups[1].Value, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
-Assert-True ($uninstallKeys.Count -ge 1) "the uninstaller deletes no keys (the parse found none)"
-foreach ($uninstallKey in $uninstallKeys) {
-    $isApproved = @($script:ApprovedRegistryDeleteTargets | Where-Object { $_ -ieq $uninstallKey }).Count -gt 0
-    Assert-True $isApproved "Uninstall-ContextMenu.ps1 deletes '$uninstallKey', which the allowlist does not approve"
+$uninstallerKeys = Get-DeclaredKeyArray -Path $uninstallPath -AnchorPattern '(?s)\$keys\s*=\s*@\((.*?)\)' -What 'uninstaller'
+$migrationKeys = Get-DeclaredKeyArray -Path (Join-Path $repoRoot "scripts\upgrade\migrate-legacy-install.ps1") -AnchorPattern '(?s)\$extraKeys\s*=\s*@\((.*?)\)' -What 'migration'
+$declaredKeys = @(@($uninstallerKeys + $migrationKeys) | Sort-Object -Unique)
+Assert-True ($uninstallerKeys.Count -ge 1) "the uninstaller deletes no keys (the parse found none)"
+Assert-True ($declaredKeys.Count -ge 1) "the consumers declare no registry keys at all"
+
+foreach ($neededKey in $declaredKeys) {
+    $isApproved = @($script:ApprovedRegistryDeleteTargets | Where-Object { $_ -ieq $neededKey }).Count -gt 0
+    Assert-True $isApproved "a consumer deletes '$neededKey', which the allowlist does not approve"
+}
+foreach ($approvedKey in $script:ApprovedRegistryDeleteTargets) {
+    $isUsed = @($declaredKeys | Where-Object { $_ -ieq $approvedKey }).Count -gt 0
+    Assert-True $isUsed "the allowlist approves '$approvedKey', which no consumer deletes - remove it or justify it explicitly"
 }
 
 # The uninstaller must actually route through the guardrail rather than calling reg.exe.
