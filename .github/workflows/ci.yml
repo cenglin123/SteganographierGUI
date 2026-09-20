@@ -40,3 +40,4 @@ jobs:
           .\scripts\test-registry-delete-safety.ps1
           python .\scripts\test-cli-temp-archive.py
           python .\scripts\test-mp4-free-atom-format.py
+          python .\scripts\test-reveal-keeps-original.py
