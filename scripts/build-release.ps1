@@ -54,7 +54,14 @@ VSVersionInfo(
     foreach ($directory in @("modules", "tools", "cover_video")) {
         Copy-Item -LiteralPath (Join-Path $repoRoot $directory) -Destination $stage -Recurse -Force
     }
-    Copy-Item -Path ".\context-menu\*" -Destination $stage -Force
+    # Right-click integration: the double-clickable entry points stay at the root
+    # (as v1.3.9 had them), while the implementation scripts are grouped under
+    # context-menu\ so the distribution root is not littered with them. They land in
+    # the same relative place as they occupy in the repository.
+    Copy-Item -Path ".\context-menu\*.cmd" -Destination $stage -Force
+    $stageContextMenu = Join-Path $stage "context-menu"
+    New-Item -ItemType Directory -Path $stageContextMenu -Force | Out-Null
+    Copy-Item -Path ".\context-menu\*.ps1" -Destination $stageContextMenu -Force
     Copy-Item -LiteralPath ".\README.md" -Destination (Join-Path $stage "README.md")
     Copy-Item -LiteralPath ".\LICENSE" -Destination (Join-Path $stage "LICENSE")
     [IO.File]::WriteAllText((Join-Path $stage "VERSION"), "$version`n", (New-Object Text.UTF8Encoding($false)))

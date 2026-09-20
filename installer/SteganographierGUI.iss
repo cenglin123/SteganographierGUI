@@ -120,12 +120,9 @@ Filename: "{app}\SteganographierGUI.exe"; Description: "启动 SteganographierGU
 
 [UninstallRun]
 ; Remove the right-click menu entries and the machine PATH entry before the files go.
-; The path is {app}\Uninstall-ContextMenu.ps1, NOT {app}\context-menu\... :
-; build-release.ps1 copies the CONTENTS of context-menu\ into the stage root, so
-; there is no context-menu subdirectory in an installed tree. (The earlier draft of
-; this step in PR #34 used the subdirectory form and would never have found the
-; script.)
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall-ContextMenu.ps1"" -InstallRoot ""{app}"""; Flags: runhidden; RunOnceId: "RemoveContextMenu"
+; The scripts live in {app}\context-menu\ : build-release.ps1 keeps only the
+; double-clickable entry points at the root and groups the implementation there.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\context-menu\Uninstall-ContextMenu.ps1"" -InstallRoot ""{app}"""; Flags: runhidden; RunOnceId: "RemoveContextMenu"
 
 [Code]
 // v1.3.9 ran its SFX script commands in this order (per the authoring worksheet
@@ -160,13 +157,13 @@ begin
   if WizardIsTaskSelected('contextmenu') then
   begin
     Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallRoot +
-                 '\Uninstall-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
+                 '\context-menu\Uninstall-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
     if (not Exec(PowerShell, Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode))
        or (ResultCode <> 0) then
       Log('Context-menu pre-clean exited with code ' + IntToStr(ResultCode) + '; continuing.');
 
     Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallRoot +
-                 '\Install-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
+                 '\context-menu\Install-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
     if (not Exec(PowerShell, Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode))
        or (ResultCode <> 0) then
     begin
