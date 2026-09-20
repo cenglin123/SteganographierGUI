@@ -2049,11 +2049,12 @@ class Steganographier:
                 
                 self.log(f"输出文件: {output_file}")
                 
-                # 计算总大小用于进度显示
+                # 计算总大小用于进度显示。mp4 模式额外写入的只有 free 原子头（8 字节）
+                # 和最多 256 字节的随机填充，取上界以免进度先到 100% 再回退。
                 mp4_size = os.path.getsize(cover_video_path)
                 zip_size = os.path.getsize(zip_file_path)
-                estimated_random_size = 1024 * 20
-                total_size_hidden = mp4_size + zip_size + estimated_random_size
+                estimated_overhead = 8 + 256
+                total_size_hidden = mp4_size + zip_size + estimated_overhead
                 processed_size = 0
                 
                 with open(cover_video_path, "rb") as cover_file:
@@ -2072,19 +2073,34 @@ class Steganographier:
                             mp4_end_pos = output.tell()
                             self.log(f"MP4数据结束位置: {mp4_end_pos}")
                             
-                            # 步骤2: 直接附加原始ZIP数据（不修改偏移量）
+                            # 步骤2: 把 ZIP 封装进 free 原子，而不是裸接在 MP4 后面。
+                            #
+                            # 旧写法是 [MP4][ZIP 原文][随机签名+随机字节]×2[假 mdat 盒]。
+                            # 云盘扫描器看到的因此是“MP4 之后跟了一段裸压缩包，而且压缩包
+                            # 之后还有别的压缩包签名”——issue #26 中迅雷拦的就是这个结构
+                            # 特征（mkv 模式不受影响，因为它走容器附件而非末尾追加）。
+                            #
+                            # free 是 MP4 规范内的合法填充原子，播放器按声明大小整块跳过，
+                            # 文件仍然是一条合法的原子链。ZIP 字节原样放在原子内部（前面
+                            # 垫 64-256 字节随机数据，使原子内部不以 PK 开头，同时让每次
+                            # 生成的哈希都不同），因此 WinRAR / 7-Zip 从文件末尾反向扫
+                            # EOCD 的机制不受影响，“改后缀为 .zip 直接解压”仍然成立。
+                            padding_size = random.randint(64, 256)
+                            random_padding = os.urandom(padding_size)
+                            zip_size = os.path.getsize(zip_file_path)
+                            free_header, _ = self.create_free_atom_header(padding_size + zip_size)
+                            output.write(free_header)
+                            output.write(random_padding)
+
                             for chunk in self.read_in_chunks(zip_file):
                                 output.write(chunk)
                                 processed_size += len(chunk)
                                 if self.progress_callback:
                                     self.progress_callback(processed_size, total_size_hidden)
-                            
+
                             zip_end_pos = output.tell()
-                            self.log(f"ZIP数据位置: {mp4_end_pos} - {zip_end_pos}")
-                            
-                            # 步骤3: 添加随机化数据
-                            self.add_randomization_data(output)
-                            
+                            self.log(f"ZIP 已封装进 free 原子: {mp4_end_pos} - {zip_end_pos}")
+
                             final_size = output.tell()
                             self.log(f"最终文件大小: {final_size} bytes")
                             
@@ -2355,50 +2371,23 @@ class Steganographier:
         mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
         file.write(mdat_box)
 
-    def add_randomization_data(self, file_obj):
+    def create_free_atom_header(self, payload_size):
         """
-        添加随机化数据进行哈希混淆
-        """
-        head_signatures = {
-            "RAR4":  b'\x52\x61\x72\x21\x1A\x07\x00',
-            "RAR5":  b'\x52\x61\x72\x21\x1A\x07\x01\x00',
-            "7Z":    b'\x37\x7A\xBC\xAF\x27\x1C',
-            "ZIP":   b'\x50\x4B\x03\x04',
-            "GZIP":  b'\x1F\x8B',
-            "BZIP2": b'\x42\x5A\x68',
-            "XZ":    b'\xFD\x37\x7A\x58\x5A\x00',
-        }
-        
-        # 添加2组随机化数据
-        for i in range(2):
-            signature = random.choice(list(head_signatures.values()))
-            file_obj.write(signature)
-            
-            random_size = 1024 * random.randint(5, 10)
-            random_bytes = os.urandom(random_size)
-            file_obj.write(random_bytes)
-        
-        # 添加MP4结尾标记
-        mdat_size = 8
-        mdat_box = struct.pack('>I4s', mdat_size, b'mdat')
-        file_obj.write(mdat_box)
+        构造 free 原子头部，返回 (头部字节, 原子总大小)。
 
+        标准形式是 4 字节大小 + "free"，大小含这 8 字节头部；载荷超过 4GB 时改用
+        large size 形式（大小字段写 1，后面跟 8 字节真实大小，真实大小含这 16 字节
+        头部）。两种形式的大小算术只在这里写一次，避免调用点各算一遍算错。
+        """
+        total_size = 8 + payload_size
+        if total_size > 0xFFFFFFFF:
+            return struct.pack('>I4sQ', 1, b'free', total_size + 8), total_size + 8
+        return struct.pack('>I4s', total_size, b'free'), total_size
 
     def create_free_atom_with_data(self, hidden_data):
         """创建包含隐藏数据的free原子"""
-        data_size = len(hidden_data)
-        # free原子总大小 = 8字节头部 + 隐藏数据大小
-        total_size = 8 + data_size
-        
-        # 如果大小超过4GB，使用large size格式
-        if total_size > 0xFFFFFFFF:
-            # large size格式：4字节(1) + 4字节类型 + 8字节实际大小 + 数据
-            header = struct.pack('>I', 1) + b'free' + struct.pack('>Q', total_size + 8)
-            return header + hidden_data
-        else:
-            # 标准格式：4字节大小 + 4字节类型 + 数据
-            header = struct.pack('>I', total_size) + b'free'
-            return header + hidden_data
+        header, _ = self.create_free_atom_header(len(hidden_data))
+        return header + hidden_data
 
 
 
