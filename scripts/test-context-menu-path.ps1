@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) ("SteganographierGUI-!Tool-" + [guid]::NewGuid().ToString("N"))
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) ("SteganographierGUI-!Tool Space-" + [guid]::NewGuid().ToString("N"))
 
 try {
     New-Item -ItemType Directory -Path $testRoot, (Join-Path $testRoot "tools"), (Join-Path $testRoot "modules") | Out-Null
@@ -21,8 +21,8 @@ try {
     if ($output -notmatch [regex]::Escape($testRoot)) {
         throw "Dry-run output did not preserve the install path.`n$output"
     }
-    if ($output -notmatch "!Tool") {
-        throw "The exclamation mark was lost from the install path.`n$output"
+    if ($output -notmatch "!Tool Space") {
+        throw "The exclamation mark or space was lost from the install path.`n$output"
     }
 
     $uninstaller = Join-Path $testRoot "02-移除隐写者右键菜单.cmd"
@@ -30,7 +30,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Context-menu uninstall dry run failed with exit code $LASTEXITCODE.`n$uninstallOutput"
     }
-    if ($uninstallOutput -notmatch [regex]::Escape($testRoot) -or $uninstallOutput -notmatch "!Tool") {
+    if ($uninstallOutput -notmatch [regex]::Escape($testRoot) -or $uninstallOutput -notmatch "!Tool Space") {
         throw "The uninstall dry run did not preserve the install path.`n$uninstallOutput"
     }
 

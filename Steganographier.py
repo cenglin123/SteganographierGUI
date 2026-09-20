@@ -518,6 +518,24 @@ def load_version(base_path):
     return version
 # ===========================
 
+def build_temp_archive_path(input_file_path, processed_files=0):
+    """隐写过程中临时 zip 的绝对路径。
+
+    这个路径必须保证压缩包不会落在输入目录内部。compress_files() 会 os.walk
+    输入目录，如果压缩包本身出现在该目录里，它就会被写进自己：zipfile.write()
+    会一边读、一边向同一个文件追加，导致压缩包无限膨胀并把磁盘写满。
+
+    曾出问题的写法是直接用 os.path.dirname()/os.path.basename()。当输入是以
+    分隔符结尾的目录路径时（PowerShell 的目录名补全就会产生这种路径，例如
+    '.\\WinX-WT-Takeover\\'），os.path.basename() 返回空串而 os.path.dirname()
+    正好返回该目录本身，于是临时 zip 被放进了输入目录内部。
+    """
+    normalized_path = os.path.normpath(input_file_path)
+    parent_directory = os.path.dirname(os.path.abspath(normalized_path))
+    archive_name = os.path.basename(normalized_path) + f"_hidden_{processed_files}.zip"
+    return os.path.join(parent_directory, archive_name)
+
+
 def sanitize_path(path: str) -> str:
     """
     移除路径中的不可见字符和全角空格，返回清洗后的路径字符串
@@ -1822,6 +1840,11 @@ class Steganographier:
         return cover_video_path
         
     def compress_files(self, zip_file_path, input_file_path, processed_size=0, password=None):
+        # 归一化输入路径：以分隔符结尾的目录路径（PowerShell 目录名补全的产物，
+        # 例如 '.\WinX-WT-Takeover\'）会让 os.path.basename() 返回空串，
+        # 导致 zip 注释、压缩包内 arcname 等全部错位。
+        input_file_path = os.path.normpath(input_file_path)
+
         # 计算文件或文件夹的大小
         def get_file_or_folder_size(path):
             total_size = 0
@@ -1865,6 +1888,28 @@ class Steganographier:
         # 准备要添加到 ZIP 注释中的信息
         zip_comment = f"SHA-256 Hash of '{os.path.basename(input_file_path)}':\n{sha256_value}\nTimestamp '{readable_time}'\nTimehash '{time_hash}'"
 
+        # 收集要压缩的文件列表。必须排除目标压缩包自身：若压缩包位于输入目录内部，
+        # os.walk 会把它一并列出，随后 zipfile.write() 会一边读、一边向同一个文件
+        # 追加，压缩包因此无限膨胀并卡死（实测约 60 MB/s，1 MB 输入涨到 7.25 GB）。
+        def collect_zip_entries():
+            archive_path = os.path.normcase(os.path.abspath(zip_file_path))
+            entries = []
+
+            if os.path.isdir(input_file_path):
+                root_folder = os.path.basename(input_file_path)
+                for root, dirs, files in os.walk(input_file_path):
+                    for file in files:
+                        file_full_path = os.path.join(root, file)
+                        if os.path.normcase(os.path.abspath(file_full_path)) == archive_path:
+                            self.log(f"跳过临时压缩包自身: {file_full_path}")
+                            continue
+                        arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
+                        entries.append((file_full_path, arcname))
+            else:
+                entries.append((input_file_path, os.path.basename(input_file_path)))
+
+            return entries
+
         if password:
             # 当设置了密码时，使用 pyzipper 进行 AES 加密
             zip_file = pyzipper.AESZipFile(zip_file_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES)
@@ -1878,19 +1923,7 @@ class Steganographier:
                 self.log("较大的文件可能会花费较长时间...")
 
                 # 收集所有需要压缩的文件
-                file_list = []
-
-                if os.path.isdir(input_file_path):
-                    root_folder = os.path.basename(input_file_path)
-                    for root, dirs, files in os.walk(input_file_path):
-                        for file in files:
-                            file_full_path = os.path.join(root, file)
-                            arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
-                            file_list.append((file_full_path, arcname))
-                else:
-                    file_full_path = input_file_path
-                    arcname = os.path.basename(input_file_path)
-                    file_list.append((file_full_path, arcname))
+                file_list = collect_zip_entries()
 
                 # 随机化文件列表顺序
                 random.shuffle(file_list)
@@ -1919,19 +1952,7 @@ class Steganographier:
                 self.log("较大的文件可能会花费较长时间...")
 
                 # 收集所有需要压缩的文件
-                file_list = []
-
-                if os.path.isdir(input_file_path):
-                    root_folder = os.path.basename(input_file_path)
-                    for root, dirs, files in os.walk(input_file_path):
-                        for file in files:
-                            file_full_path = os.path.join(root, file)
-                            arcname = os.path.join(root_folder, os.path.relpath(file_full_path, start=input_file_path))
-                            file_list.append((file_full_path, arcname))
-                else:
-                    file_full_path = input_file_path
-                    arcname = os.path.basename(input_file_path)
-                    file_list.append((file_full_path, arcname))
+                file_list = collect_zip_entries()
 
                 # 随机化文件列表顺序
                 random.shuffle(file_list)
@@ -2008,8 +2029,8 @@ class Steganographier:
                                                         video_folder_path=self.video_folder_path)
         # self.log(f"实际隐写外壳文件：{cover_video_path}")
                 
-        # 2. 隐写的临时zip文件名
-        zip_file_path = os.path.join(os.path.dirname(input_file_path), os.path.basename(input_file_path) + f"_hidden_{processed_files}.zip")
+        # 2. 隐写的临时zip文件名（保证不会落在输入目录内部，见 build_temp_archive_path）
+        zip_file_path = build_temp_archive_path(input_file_path, processed_files)
         
         # 3. 计算要压缩的文件总大小
         self.total_file_size = get_file_or_folder_size(input_file_path)
@@ -2244,8 +2265,11 @@ class Steganographier:
             self.log(f"隐写时发生未预料的错误: {str(e)}")
             raise
         finally:
-            # 5. 删除临时zip文件
-            os.remove(zip_file_path)
+            # 5. 删除临时zip文件（容错：清理失败不应掩盖真正的错误）
+            try:
+                os.remove(zip_file_path)
+            except OSError as remove_error:
+                self.log(f"删除临时zip文件失败: {remove_error}")
 
         self.log(f"Output file created: {os.path.exists(output_file)}\n")
 
@@ -3595,10 +3619,23 @@ if __name__ == "__main__":
     setup_console_streams()
     
     # 预先判断是否为CLI模式（检查是否有命令行参数）
-    is_cli_mode = len(sys.argv) > 1 and any(
-        arg in sys.argv for arg in ['-i', '--input', '-r', '--reveal', 
-                                    '-rd', '--reveal-dir', '-h', '--help',
-                                    '-o', '--output', '-p', '--password']
+    # 位置参数同样属于CLI模式：既包括裸路径（例如 PowerShell 目录名补全产生的
+    # '.\WinX-WT-Takeover\'），也包括 shell 拖放/右键传入的路径。只匹配已知开关
+    # 会把这类调用误判为GUI模式并隐藏控制台，终端里便看不到任何输出。
+    # '-rb' 会打开GUI窗口，因此显式排除。
+    cli_flag_arguments = ['-i', '--input', '-o', '--output', '-p', '--password',
+                          '-t', '--type', '-c', '--cover', '-r', '--reveal',
+                          '-rd', '--reveal-dir', '-h', '--help',
+                          '-pf', '--password-file', '-v', '--version',
+                          '--keep-original', '--auto-rename', '--no-log']
+    gui_flag_arguments = ['-rb', '--reveal-batch']
+    is_cli_mode = (
+        len(sys.argv) > 1
+        and not any(arg in sys.argv for arg in gui_flag_arguments)
+        and (
+            any(arg in sys.argv for arg in cli_flag_arguments)
+            or any(not arg.startswith('-') for arg in sys.argv[1:])
+        )
     )
     
     # 根据模式显示/隐藏控制台
