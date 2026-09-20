@@ -1,13 +1,21 @@
-﻿# Fetch the pinned third-party companion tool into the release stage.
+﻿# Stage the vendored third-party companion tool into the release stage.
 #
-# docs/THIRD-PARTY-DOWNKYI.md requires that a bundled DownKyi be a real build
-# input: pinned version, SHA256 verified, licence files preserved. Historically
-# the folder was stuffed into the stage by hand before publishing, which is the
-# "local directory as build input" pattern RELEASING.md forbids, and is why the
-# tool disappeared from releases once packaging became fully automated.
+# Authority: the user adjusted this DownKyi build themselves, so the copy that
+# shipped inside the v1.3.9 installer is the reference - not the upstream GitHub
+# release. 35 of its 36 files are byte-identical to upstream v1.6.1; the single
+# exception (DownKyi.Core.dll, the user's own build) is tracked in git under
+# vendor\downkyi-1.6.1\overrides\. That keeps the irreplaceable part in the
+# repository as the single source of truth, while the 75 MB of publicly
+# reproducible files are reproduced from a pinned, hash-verified archive instead
+# of being committed.
 #
-# The payload (~75 MB expanded) is deliberately NOT tracked by git; it is cached
-# under .thirdparty-cache/ (gitignored) and copied into the stage on each build.
+# The acceptance gate is vendor\downkyi-1.6.1\MANIFEST.csv: every staged file is
+# checked against the approved build's size and SHA256, and an unexpected file
+# fails the build. "We fetched the right zip" is not the claim being made; "the
+# staged tree is byte-identical to the build the author approved" is.
+#
+# The payload is never tracked by git; it is cached under .thirdparty-cache\
+# (gitignored) and copied into the stage on each build.
 #
 # The only non-ASCII in this file is the vendored folder name, which has to match
 # what users of the older builds already have on disk.
@@ -29,10 +37,9 @@ if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
     throw "tools\7z.exe is required to unpack the vendored archives but was not found."
 }
 
-# Pinned sources. The SHA256 values were computed from the official GitHub release
-# assets; DownKyi's zip is corroborated by 35 of its 36 files being byte-identical
-# to the copy that shipped with v1.3.9 (the exception is noted in
-# docs/THIRD-PARTY-DOWNKYI.md). Update all fields together on any bump.
+# Pinned sources. Update all fields together on any bump; the manifest is what
+# actually constrains the result, so a bumped upstream archive that no longer
+# reproduces the approved build will fail rather than ship silently.
 # ArchiveName stays ASCII so the cache path never depends on the console code page.
 $packages = @(
     @{
@@ -42,6 +49,8 @@ $packages = @(
         Url         = "https://github.com/leiurayer/downkyi/releases/download/v1.6.1/DownKyi-1.6.1.zip"
         SizeBytes   = 32204639
         Sha256      = "d809c230c9dd9ab18a7cbafc413db2d93eca25e45c4df5fa6aaad3f253015986"
+        # Tracked authority: per-file overrides plus the expected end state.
+        VendorDir   = "vendor\downkyi-1.6.1"
         # Upstream licence/attribution files that must survive into the release.
         MustKeep    = @("aria2_COPYING.txt", "FFmpeg_LICENSE.txt")
     }
@@ -54,9 +63,21 @@ if (-not (Test-Path -LiteralPath $DestinationDirectory)) {
     throw "Destination directory does not exist: $DestinationDirectory"
 }
 
+function Get-RelativePath {
+    param([string]$Root, [string]$FullPath)
+    return ($FullPath.Substring($Root.Length).TrimStart('\', '/') -replace '\\', '/')
+}
+
 foreach ($package in $packages) {
     $archivePath = Join-Path $CacheDirectory $package.ArchiveName
     $expandPath = Join-Path $CacheDirectory $package.ExpandName
+    $vendorPath = Join-Path $repoRoot $package.VendorDir
+    $manifestPath = Join-Path $vendorPath "MANIFEST.csv"
+    $overridePath = Join-Path $vendorPath "overrides"
+
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "The tracked manifest is missing: $manifestPath"
+    }
 
     # --- download only when absent; a cached file is still verified below ---
     if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
@@ -79,7 +100,7 @@ foreach ($package in $packages) {
     }
     $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
     if ($actualHash -ne $package.Sha256) {
-        throw ("SHA256 mismatch for {0}: expected {1}, found {2}. Refusing to vendor an unverified archive." -f `
+        throw ("SHA256 mismatch for {0}: expected {1}, found {2}. Refusing to stage an unverified archive." -f `
                $package.ArchiveName, $package.Sha256, $actualHash)
     }
     Write-Host ("Verified {0} ({1} bytes, sha256 {2}...)" -f `
@@ -96,23 +117,81 @@ foreach ($package in $packages) {
         throw "7z.exe failed to unpack '$archivePath' with exit code $LASTEXITCODE."
     }
 
-    # --- copy into the stage ---
+    # --- apply the tracked overrides on top of the upstream tree ---
+    $appliedOverrides = 0
+    if (Test-Path -LiteralPath $overridePath -PathType Container) {
+        foreach ($overrideFile in Get-ChildItem -LiteralPath $overridePath -Recurse -File) {
+            $relative = Get-RelativePath -Root $overridePath -FullPath $overrideFile.FullName
+            $overrideTarget = Join-Path $expandPath ($relative -replace '/', '\')
+            $overrideParent = Split-Path -Parent $overrideTarget
+            if (-not (Test-Path -LiteralPath $overrideParent)) {
+                New-Item -ItemType Directory -Path $overrideParent -Force | Out-Null
+            }
+            Copy-Item -LiteralPath $overrideFile.FullName -Destination $overrideTarget -Force
+            $appliedOverrides++
+            Write-Host ("Applied tracked override: {0}" -f $relative)
+        }
+    }
+
+    # --- copy the assembled tree into the stage ---
     $targetPath = Join-Path $DestinationDirectory $package.FolderName
     if (Test-Path -LiteralPath $targetPath) {
         Remove-Item -LiteralPath $targetPath -Recurse -Force
     }
     Copy-Item -LiteralPath $expandPath -Destination $targetPath -Recurse -Force
 
-    # --- the licence files must have survived ---
-    foreach ($mustKeep in $package.MustKeep) {
-        $keptPath = Join-Path $targetPath $mustKeep
-        if (-not (Test-Path -LiteralPath $keptPath -PathType Leaf)) {
-            throw "Required licence file was not unpacked: $mustKeep"
+    # --- acceptance gate: the staged tree must equal the approved build ---
+    $expected = @(Import-Csv -LiteralPath $manifestPath)
+    if ($expected.Count -eq 0) {
+        throw "The tracked manifest has no rows: $manifestPath"
+    }
+    $expectedByPath = @{}
+    foreach ($row in $expected) {
+        $expectedByPath[$row.relative_path] = $row
+    }
+
+    $stagedFiles = @{}
+    foreach ($stagedFile in Get-ChildItem -LiteralPath $targetPath -Recurse -File) {
+        $stagedFiles[(Get-RelativePath -Root $targetPath -FullPath $stagedFile.FullName)] = $stagedFile
+    }
+
+    $problems = @()
+    foreach ($relative in $expectedByPath.Keys) {
+        if (-not $stagedFiles.ContainsKey($relative)) {
+            $problems += "missing: $relative"
+            continue
+        }
+        $stagedFile = $stagedFiles[$relative]
+        $row = $expectedByPath[$relative]
+        if ($stagedFile.Length -ne [int64]$row.size_bytes) {
+            $problems += ("size: {0} (staged {1}, approved {2})" -f `
+                          $relative, $stagedFile.Length, $row.size_bytes)
+            continue
+        }
+        $stagedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $stagedFile.FullName).Hash.ToLowerInvariant()
+        if ($stagedHash -ne $row.sha256) {
+            $problems += "sha256: $relative"
         }
     }
-    $copiedCount = (Get-ChildItem -LiteralPath $targetPath -Recurse -File).Count
-    Write-Host ("Staged {0} -> {1} ({2} files, licences preserved)" -f `
-                $package.FolderName, $targetPath, $copiedCount)
+    foreach ($relative in $stagedFiles.Keys) {
+        if (-not $expectedByPath.ContainsKey($relative)) {
+            $problems += "unexpected: $relative"
+        }
+    }
+
+    if ($problems.Count -gt 0) {
+        throw ("Staged {0} does not match the approved build ({1} problem(s)):`n  {2}" -f `
+               $package.FolderName, $problems.Count, ($problems -join "`n  "))
+    }
+
+    foreach ($mustKeep in $package.MustKeep) {
+        if (-not (Test-Path -LiteralPath (Join-Path $targetPath $mustKeep) -PathType Leaf)) {
+            throw "Required licence file was not staged: $mustKeep"
+        }
+    }
+
+    Write-Host ("Staged {0}: {1} files, {2} tracked override(s), all match the approved v1.3.9 build" -f `
+                $package.FolderName, $stagedFiles.Count, $appliedOverrides)
 }
 
 Write-Host "Third-party inputs staged."

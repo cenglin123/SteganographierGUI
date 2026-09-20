@@ -30,6 +30,8 @@ $requiredPaths = @(
     "context-menu/RegistryWrite.ps1",
     "context-menu/InstallElevated.cmd",
     "scripts/fetch-thirdparty.ps1",
+    "vendor/downkyi-1.6.1/MANIFEST.csv",
+    "vendor/downkyi-1.6.1/overrides/DownKyi.Core.dll",
     "modules/favicon.ico",
     "modules/favicon_hash_modifier.ico",
     "modules/PW.txt",
