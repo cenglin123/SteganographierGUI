@@ -17,7 +17,10 @@ if (-not $program) {
 $hashModifier = Join-Path $toolsDirectory "hash_modifier.exe"
 $selectionLauncher = Join-Path $toolsDirectory "launch_from_selection.ps1"
 $icon = Join-Path $installDirectory "modules\favicon.ico"
-foreach ($requiredFile in @($hashModifier, $selectionLauncher, $icon)) {
+# v1.3.9 gave the two hash entries their own icon; the file is still shipped but
+# had stopped being referenced, so the menu showed the generic application icon.
+$hashIcon = Join-Path $installDirectory "modules\favicon_hash_modifier.ico"
+foreach ($requiredFile in @($hashModifier, $selectionLauncher, $icon, $hashIcon)) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "Required context-menu file is missing: $requiredFile"
     }
@@ -27,6 +30,31 @@ function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# v1.3.9 broadcast WM_SETTINGCHANGE so already-running shells and Explorer pick the
+# new PATH up; the vendor-specific `rundll32 user32.dll,UpdatePerUserSystemParameters`
+# that replaced it does not, so a machine PATH edit stayed invisible until reboot or
+# re-login. Restored here (and duplicated in Uninstall-ContextMenu.ps1, matching how
+# Test-Administrator is already shared between the two).
+function Send-EnvironmentChangeBroadcast {
+    if (-not ([System.Management.Automation.PSTypeName]'NativeMethods').Type) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class NativeMethods {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(IntPtr hWnd, int Msg, UIntPtr wParam,
+        string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+}
+"@
+    }
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1A
+    $SMTO_ABORTIFHUNG = 0x0002
+    $result = [IntPtr]::Zero
+    $null = [NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE,
+        [UIntPtr]::Zero, 'Environment', $SMTO_ABORTIFHUNG, 5000, [ref]$result)
 }
 
 # Set-RegistryString lives in RegistryWrite.ps1 so the shipping implementation can
@@ -58,7 +86,7 @@ if (-not $pathExists -and $PSCmdlet.ShouldProcess($toolsDirectory, "Add tools di
     $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
     $kind = (Get-Item $key).GetValueKind('Path')
     Set-ItemProperty -LiteralPath $key -Name Path -Value $newMachinePath -Type $kind
-    & cmd.exe /c 'rundll32.exe user32.dll,UpdatePerUserSystemParameters 1,True >nul 2>&1' | Out-Null
+    Send-EnvironmentChangeBroadcast
 }
 
 $commandStore = "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell"
@@ -74,13 +102,13 @@ Set-RegistryString -Key $directoryMenu -Name "SubCommands" -Value "hideMp4;hideM
 Set-RegistryString -Key $directoryMenu -Name "Icon" -Value $programPath -WhatIf:$WhatIfPreference
 
 $commands = @(
-    @{ Name = "hideMp4"; Label = "Hide as MP4"; Command = ('"{0}" -i "%1" -o "%1_hidden.mp4" -t mp4' -f $programPath) },
-    @{ Name = "hideMkv"; Label = "Hide as MKV"; Command = ('"{0}" -i "%1" -o "%1_hidden.mkv" -t mkv' -f $programPath) },
-    @{ Name = "revealFileCLI"; Label = "Reveal file"; Command = ('"{0}" -i "%1" -r' -f $programPath) },
-    @{ Name = "revealFileGUI"; Label = "Reveal selected files in GUI"; Command = ('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" "%1"' -f $selectionLauncher) },
-    @{ Name = "revealDir"; Label = "Reveal directory"; Command = ('"{0}" -i "%1" -rd -rdgui' -f $programPath) },
-    @{ Name = "modifyHash"; Label = "Modify file hash"; Command = ('"{0}" "%1"' -f $hashModifier); Icon = $icon },
-    @{ Name = "openHashModifier"; Label = "Open hash modifier"; Command = ('"{0}" --gui' -f $hashModifier); Icon = $icon }
+    @{ Name = "hideMp4"; Label = "隐写为MP4文件(无密码)"; Command = ('"{0}" -i "%1" -o "%1_hidden.mp4" -t mp4' -f $programPath) },
+    @{ Name = "hideMkv"; Label = "隐写为MKV文件(无密码)"; Command = ('"{0}" -i "%1" -o "%1_hidden.mkv" -t mkv' -f $programPath) },
+    @{ Name = "revealFileCLI"; Label = "解除隐写(根据密码本)"; Command = ('"{0}" -i "%1" -r' -f $programPath) },
+    @{ Name = "revealFileGUI"; Label = "批量解除隐写(打开GUI)"; Command = ('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" "%1"' -f $selectionLauncher) },
+    @{ Name = "revealDir"; Label = "解除此文件夹下所有隐写(批量)"; Command = ('"{0}" -i "%1" -rd -rdgui' -f $programPath) },
+    @{ Name = "modifyHash"; Label = "修改文件/文件夹哈希值"; Command = ('"{0}" "%1"' -f $hashModifier); Icon = $hashIcon },
+    @{ Name = "openHashModifier"; Label = "打开哈希修改器GUI"; Command = ('"{0}" --gui' -f $hashModifier); Icon = $hashIcon }
 )
 
 foreach ($definition in $commands) {
@@ -92,7 +120,7 @@ foreach ($definition in $commands) {
     Set-RegistryString -Key "$commandKey\command" -Value $definition.Command -WhatIf:$WhatIfPreference
 }
 
-Set-RegistryString -Key $backgroundMenu -Value "Open SteganographierGUI" -WhatIf:$WhatIfPreference
+Set-RegistryString -Key $backgroundMenu -Value "打开隐写者GUI" -WhatIf:$WhatIfPreference
 Set-RegistryString -Key $backgroundMenu -Name "Icon" -Value $programPath -WhatIf:$WhatIfPreference
 Set-RegistryString -Key "$backgroundMenu\command" -Value ('"{0}"' -f $programPath) -WhatIf:$WhatIfPreference
 

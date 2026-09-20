@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ExpectedVersion,
     [string]$Tag
 )
@@ -29,6 +29,7 @@ $requiredPaths = @(
     "context-menu/Uninstall-ContextMenu.ps1",
     "context-menu/RegistryWrite.ps1",
     "modules/favicon.ico",
+    "modules/favicon_hash_modifier.ico",
     "modules/PW.txt",
     "installer/SteganographierGUI.iss",
     "installer/Languages/ChineseSimplified.isl",

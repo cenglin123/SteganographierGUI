@@ -14,6 +14,29 @@ function Test-Administrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# See the matching comment in Install-ContextMenu.ps1: v1.3.9 broadcast
+# WM_SETTINGCHANGE, which actually refreshes PATH for running shells; the
+# rundll32 replacement that followed it does not.
+function Send-EnvironmentChangeBroadcast {
+    if (-not ([System.Management.Automation.PSTypeName]'NativeMethods').Type) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class NativeMethods {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(IntPtr hWnd, int Msg, UIntPtr wParam,
+        string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+}
+"@
+    }
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1A
+    $SMTO_ABORTIFHUNG = 0x0002
+    $result = [IntPtr]::Zero
+    $null = [NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE,
+        [UIntPtr]::Zero, 'Environment', $SMTO_ABORTIFHUNG, 5000, [ref]$result)
+}
+
 if (-not $WhatIfPreference -and -not (Test-Administrator)) {
     throw "Run this script as administrator."
 }
@@ -40,13 +63,18 @@ $keys = @(
     "HKCR\*\shell\Steganographier",
     "HKCR\Directory\shell\Steganographier",
     "HKCR\Directory\Background\shell\openSteganographier",
+    # Legacy names that the v1.3.9 uninstaller removed but this list had dropped,
+    # leaving orphans behind when upgrading from a pre-1.3.10 install.
+    "HKCR\Directory\Background\shell\SteganographierAndHashModifier",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\hideMp4",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\hideMkv",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\revealFileCLI",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\revealFileGUI",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\revealDir",
     "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\modifyHash",
-    "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\openHashModifier"
+    "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\openHashModifier",
+    "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\reveal",
+    "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\openSteganographier"
 )
 foreach ($key in $keys) {
     if ($PSCmdlet.ShouldProcess($key, "Delete registry key")) {
@@ -69,7 +97,7 @@ if ($PSCmdlet.ShouldProcess($toolsDirectory, "Remove tools directory from the ma
     $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
     $kind = (Get-Item $key).GetValueKind('Path')
     Set-ItemProperty -LiteralPath $key -Name Path -Value ($remainingEntries -join ";") -Type $kind
-    & cmd.exe /c 'rundll32.exe user32.dll,UpdatePerUserSystemParameters 1,True >nul 2>&1' | Out-Null
+    Send-EnvironmentChangeBroadcast
 }
 
 $stegLauncher = Join-Path $toolsDirectory "steg.cmd"

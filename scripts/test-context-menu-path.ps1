@@ -10,7 +10,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\RegistryWrite.ps1") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\Uninstall-ContextMenu.ps1") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "tools\launch_from_selection.ps1") -Destination (Join-Path $testRoot "tools")
-    foreach ($relativePath in @("SteganographierGUI.exe", "tools\hash_modifier.exe", "modules\favicon.ico")) {
+    foreach ($relativePath in @("SteganographierGUI.exe", "tools\hash_modifier.exe", "modules\favicon.ico", "modules\favicon_hash_modifier.ico")) {
         New-Item -ItemType File -Path (Join-Path $testRoot $relativePath) | Out-Null
     }
 
@@ -24,6 +24,20 @@ try {
     }
     if ($output -notmatch "!Tool Space") {
         throw "The exclamation mark or space was lost from the install path.`n$output"
+    }
+    # v1.3.9 shipped these entries in Chinese and the PowerShell rewrite silently
+    # switched them to English. Pin the wording so it cannot drift again unnoticed.
+    foreach ($expectedLabel in @(
+        "隐写为MP4文件(无密码)",
+        "解除隐写(根据密码本)",
+        "批量解除隐写(打开GUI)",
+        "修改文件/文件夹哈希值",
+        "打开哈希修改器GUI",
+        "打开隐写者GUI"
+    )) {
+        if ($output -notmatch [regex]::Escape($expectedLabel)) {
+            throw "Dry-run output is missing the v1.3.9 menu label '$expectedLabel'.`n$output"
+        }
     }
 
     $uninstaller = Join-Path $testRoot "02-移除隐写者右键菜单.cmd"
