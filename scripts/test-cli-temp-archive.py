@@ -63,10 +63,17 @@ def make_fixture(root, folder_name):
 
 
 class Watchdog:
-    """Abort hard if the archive grows past the cap."""
+    """Abort hard if the archive grows past the cap.
 
-    def __init__(self, archive_path, cap=ARCHIVE_CAP_BYTES):
+    os._exit() skips the caller's finally block, so the fixture directory must
+    be removed here or a detected regression would leave the runaway archive
+    behind. rmtree may fail while the writer still holds the file open, hence
+    ignore_errors.
+    """
+
+    def __init__(self, archive_path, cleanup_root=None, cap=ARCHIVE_CAP_BYTES):
         self.archive_path = archive_path
+        self.cleanup_root = cleanup_root
         self.cap = cap
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -78,6 +85,8 @@ class Watchdog:
             except OSError:
                 size = 0
             if size > self.cap:
+                if self.cleanup_root:
+                    shutil.rmtree(self.cleanup_root, ignore_errors=True)
                 sys.stdout.flush()
                 sys.stderr.write(
                     "\nFAIL: archive '%s' exceeded %d bytes; it is being "
@@ -140,7 +149,7 @@ def test_compress_excludes_archive_from_itself(module, work_root):
     # Deliberately reproduce the broken layout: archive inside the input dir.
     archive = os.path.join(folder, "_hidden_0.zip")
 
-    with Watchdog(archive):
+    with Watchdog(archive, work_root):
         started = time.time()
         make_compressor(module).compress_files(archive, folder + os.sep)
         elapsed = time.time() - started
@@ -174,7 +183,7 @@ def test_normal_input_keeps_folder_prefix(module, work_root):
     if is_inside(archive, folder):
         raise AssertionError("archive landed inside the input directory")
 
-    with Watchdog(archive):
+    with Watchdog(archive, work_root):
         make_compressor(module).compress_files(archive, folder)
 
     with zipfile.ZipFile(archive) as handle:
