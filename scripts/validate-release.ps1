@@ -57,6 +57,28 @@ foreach ($relativePath in $requiredPaths) {
     }
 }
 
+# --- 占位密码本身份判定 -------------------------------------------------------
+# modules/PW.txt 必须是「已知占位文件」：以精确字节（首选）或 SHA-256 判定。
+# 严禁按文件大小判定——真实密码本与占位文件都可能很短，大小不构成身份。
+# 未知内容一律拒绝（fail closed）：它可能是真实密码本，绝不能进入构建产物。
+$placeholderPwBytes  = [byte[]](0x0D, 0x0A)
+$placeholderPwSha256 = "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+$pwPath = Join-Path $repoRoot "modules/PW.txt"
+$pwBytes = [IO.File]::ReadAllBytes($pwPath)
+$pwBytesMatch = $pwBytes.Length -eq $placeholderPwBytes.Length
+if ($pwBytesMatch) {
+    for ($pwIndex = 0; $pwIndex -lt $placeholderPwBytes.Length; $pwIndex++) {
+        if ($pwBytes[$pwIndex] -ne $placeholderPwBytes[$pwIndex]) {
+            $pwBytesMatch = $false
+            break
+        }
+    }
+}
+$pwHash = (Get-FileHash -LiteralPath $pwPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if (-not $pwBytesMatch -and $pwHash -ne $placeholderPwSha256) {
+    throw ("modules/PW.txt is not the known placeholder. Expected exact bytes 0D 0A or SHA-256 {0}; found SHA-256 {1} ({2} bytes). Refusing to continue: unknown content may be a real password book. This decision is based on exact content, never on file size." -f $placeholderPwSha256, $pwHash, $pwBytes.Length)
+}
+
 Push-Location $repoRoot
 try {
     $reportedVersion = (& python .\Steganographier.py --version 2>&1 | Out-String).Trim()

@@ -34,4 +34,5 @@ jobs:
           # failed only on 5.1, so assert the installer chain on that host too.
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-context-menu-path.ps1
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-context-menu-registry-write.ps1
+          .\scripts\test-registry-delete-safety.ps1
           python .\scripts\test-cli-temp-archive.py

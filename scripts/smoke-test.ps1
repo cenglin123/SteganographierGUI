@@ -17,6 +17,7 @@ $requiredFiles = @(
     "context-menu\Install-ContextMenu.ps1",
     "context-menu\Uninstall-ContextMenu.ps1",
     "context-menu\RegistryWrite.ps1",
+    "context-menu\RegistryDeleteSafety.ps1",
     "InstallElevated.cmd",
     # PyInstaller 6 keeps the bundled runtime in _internal\; the tkinterdnd2 data
     # files collected by the spec land there too.

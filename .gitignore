@@ -166,3 +166,12 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# --- 运行时用户数据：绝不入库 -------------------------------------------------
+# 应用会在仓库根写入真实密码本 / 配置 / 日志；这些是用户数据，不是构建输入。
+config.json
+logs/
+
+# modules/PW.txt 是「已跟踪的占位文件」（精确字节 0D 0A）。.gitignore 对已跟踪文件无效，
+# 故其占位身份改由 scripts/validate-release.ps1 的精确字节 / SHA-256 判定强制，
+# 并明确禁止任何「按文件大小判定是否为占位符」的做法。

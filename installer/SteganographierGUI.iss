@@ -102,7 +102,7 @@ Name: "desktopicon"; Description: "{cm:StegTaskDesktopIcon}"; GroupDescription: 
 ; Program files are overwritten on upgrade. User data never is: modules\PW.txt is a
 ; real password book (a live install has ~1.4 KB here, while the tracked placeholder
 ; is 2 bytes), and config.json / logs\ are runtime state. See AGENTS.md
-; "Deployment Rules".
+; "Deployment Rules" and docs/RELEASING.md.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "config.json,logs\*,modules\PW.txt"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Install the placeholder password book only when the target does not exist yet, and
 ; never remove it on uninstall - otherwise an upgrade would destroy the real one.
@@ -122,6 +122,8 @@ Filename: "{app}\SteganographierGUI.exe"; Description: "启动 SteganographierGU
 ; Remove the right-click menu entries and the machine PATH entry before the files go.
 ; The scripts live in {app}\context-menu\ : build-release.ps1 keeps only the
 ; double-clickable entry points at the root and groups the implementation there.
+; The deletion itself goes through context-menu\RegistryDeleteSafety.ps1, so only
+; allowlisted leaf keys can be removed and the critical system roots are refused.
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\context-menu\Uninstall-ContextMenu.ps1"" -InstallRoot ""{app}"""; Flags: runhidden; RunOnceId: "RemoveContextMenu"
 
 [Code]
