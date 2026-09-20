@@ -99,7 +99,14 @@ Name: "contextmenu"; Description: "{cm:StegTaskContextMenu}"; GroupDescription: 
 Name: "desktopicon"; Description: "{cm:StegTaskDesktopIcon}"; GroupDescription: "{cm:StegAdditionalTasks}"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Program files are overwritten on upgrade. User data never is: modules\PW.txt is a
+; real password book (a live install has ~1.4 KB here, while the tracked placeholder
+; is 2 bytes), and config.json / logs\ are runtime state. See AGENTS.md
+; "Deployment Rules".
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "config.json,logs\*,modules\PW.txt"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Install the placeholder password book only when the target does not exist yet, and
+; never remove it on uninstall - otherwise an upgrade would destroy the real one.
+Source: "{#SourceDir}\modules\PW.txt"; DestDir: "{app}\modules"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 ; v1.3.9 named both shortcuts 隐写者 and used modules\favicon.ico. Its Shortcut=
@@ -110,6 +117,15 @@ Name: "{autodesktop}\隐写者"; Filename: "{app}\SteganographierGUI.exe"; IconF
 
 [Run]
 Filename: "{app}\SteganographierGUI.exe"; Description: "启动 SteganographierGUI"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Remove the right-click menu entries and the machine PATH entry before the files go.
+; The path is {app}\Uninstall-ContextMenu.ps1, NOT {app}\context-menu\... :
+; build-release.ps1 copies the CONTENTS of context-menu\ into the stage root, so
+; there is no context-menu subdirectory in an installed tree. (The earlier draft of
+; this step in PR #34 used the subdirectory form and would never have found the
+; script.)
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall-ContextMenu.ps1"" -InstallRoot ""{app}"""; Flags: runhidden; RunOnceId: "RemoveContextMenu"
 
 [Code]
 // v1.3.9 ran its SFX script commands in this order (per the authoring worksheet
@@ -161,5 +177,8 @@ begin
     end;
   end;
 
-  ShellExec('open', InstallRoot, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  // Opening the folder is a courtesy for an interactive install; in a silent or
+  // scripted run it would just pop a window nobody asked for.
+  if not WizardSilent then
+    ShellExec('open', InstallRoot, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
