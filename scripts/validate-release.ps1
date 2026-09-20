@@ -28,6 +28,8 @@ $requiredPaths = @(
     "context-menu/Install-ContextMenu.ps1",
     "context-menu/Uninstall-ContextMenu.ps1",
     "context-menu/RegistryWrite.ps1",
+    "context-menu/InstallElevated.cmd",
+    "scripts/fetch-thirdparty.ps1",
     "modules/favicon.ico",
     "modules/favicon_hash_modifier.ico",
     "modules/PW.txt",

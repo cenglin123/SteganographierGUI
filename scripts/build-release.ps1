@@ -59,6 +59,11 @@ VSVersionInfo(
     Copy-Item -LiteralPath ".\LICENSE" -Destination (Join-Path $stage "LICENSE")
     [IO.File]::WriteAllText((Join-Path $stage "VERSION"), "$version`n", (New-Object Text.UTF8Encoding($false)))
 
+    # Vendored companion tool. Not tracked by git; fetched by pinned URL + SHA256
+    # into .thirdparty-cache\ and copied into the stage so it reaches both the
+    # portable ZIP and the installer. See docs/THIRD-PARTY-DOWNKYI.md.
+    & .\scripts\fetch-thirdparty.ps1 -DestinationDirectory $stage
+
     $commit = (git rev-parse HEAD).Trim()
     $manifest = [ordered]@{
         version = $version

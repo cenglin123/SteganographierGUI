@@ -36,6 +36,10 @@ MANIFEST
 # Release output
 artifacts/
 
+# Vendored third-party inputs fetched by scripts/fetch-thirdparty.ps1
+# (pinned URL + SHA256; never tracked - see docs/THIRD-PARTY-DOWNKYI.md)
+.thirdparty-cache/
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
