@@ -27,6 +27,7 @@ $requiredPaths = @(
     "context-menu/02-移除隐写者右键菜单.cmd",
     "context-menu/Install-ContextMenu.ps1",
     "context-menu/Uninstall-ContextMenu.ps1",
+    "context-menu/RegistryWrite.ps1",
     "modules/favicon.ico",
     "modules/PW.txt",
     "installer/SteganographierGUI.iss",

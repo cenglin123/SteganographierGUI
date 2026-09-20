@@ -29,37 +29,10 @@ function Test-Administrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Set-RegistryString {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Key,
-        [string]$Name,
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [string]$Value
-    )
-
-    $arguments = @("add", $Key)
-    if ($Name) {
-        $arguments += @("/v", $Name)
-    } else {
-        $arguments += "/ve"
-    }
-    $arguments += @("/t", "REG_SZ", "/d", $Value, "/f")
-
-    if ($PSCmdlet.ShouldProcess($Key, "Set registry value '$Name' to '$Value'")) {
-        # cmd.exe wrapper: on PS 5.1 an outer ErrorActionPreference='Stop' promotes any
-        # captured native stderr (2>$null / 2>&1) to a terminating NativeCommandError;
-        # merging into stdout inside cmd avoids that. Also fixes bare reg.exe resolution
-        # under the 32-bit file-system redirector.
-        $argLine = ($arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
-        $output = & cmd.exe /c "reg $argLine 2>&1"
-        if ($LASTEXITCODE -ne 0) {
-            throw "reg.exe failed for '$Key' with exit code $LASTEXITCODE : $(($output | Out-String).Trim())"
-        }
-    }
-}
+# Set-RegistryString lives in RegistryWrite.ps1 so the shipping implementation can
+# be dot-sourced and round-trip tested against scratch keys instead of being
+# re-implemented (a copy can drift, and did: the v1.3.10 form broke on every path).
+. (Join-Path $PSScriptRoot "RegistryWrite.ps1")
 
 if (-not $WhatIfPreference -and -not (Test-Administrator)) {
     throw "Run this script as administrator."

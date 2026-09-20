@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("SteganographierGUI-!Tool Space-" + [guid]::NewGuid().ToString("N"))
 
@@ -7,6 +7,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\01-安装隐写者到右键菜单.cmd") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\02-移除隐写者右键菜单.cmd") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\Install-ContextMenu.ps1") -Destination $testRoot
+    Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\RegistryWrite.ps1") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "context-menu\Uninstall-ContextMenu.ps1") -Destination $testRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "tools\launch_from_selection.ps1") -Destination (Join-Path $testRoot "tools")
     foreach ($relativePath in @("SteganographierGUI.exe", "tools\hash_modifier.exe", "modules\favicon.ico")) {

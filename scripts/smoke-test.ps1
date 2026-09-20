@@ -14,6 +14,7 @@ $requiredFiles = @(
     "02-移除隐写者右键菜单.cmd",
     "Install-ContextMenu.ps1",
     "Uninstall-ContextMenu.ps1",
+    "RegistryWrite.ps1",
     "tkinterdnd2\tkdnd\win64\libtkdnd2.9.2.dll",
     "modules\favicon.ico",
     "modules\PW.txt",
