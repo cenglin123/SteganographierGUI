@@ -87,6 +87,37 @@ try {
         }
     }
 
+    # Inno displays these files at run time (the licence page and the two
+    # information pages). It needs the UTF-8 BOM to render Chinese correctly, and
+    # CRLF; a plain-text editor or an automated rewrite drops the BOM easily, and
+    # the resulting mojibake only shows up in the installer UI.
+    $innoPageFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot "installer") -File -Filter "*.txt" -ErrorAction SilentlyContinue)
+    if ($innoPageFiles.Count -eq 0) {
+        throw "No installer text pages were found to check."
+    }
+    foreach ($pageFile in $innoPageFiles) {
+        $pageBytes = [IO.File]::ReadAllBytes($pageFile.FullName)
+        $checkedCount++
+        $pageRelative = $pageFile.FullName.Substring($repoRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+        $pageHasBom = ($pageBytes.Length -ge 3 -and
+                       $pageBytes[0] -eq 0xEF -and $pageBytes[1] -eq 0xBB -and $pageBytes[2] -eq 0xBF)
+        if (-not $pageHasBom) {
+            Write-Host ("  FAIL  {0}  (installer text page needs a UTF-8 BOM)" -f $pageRelative)
+            $failures += $pageRelative
+        }
+        $pageBareLf = 0
+        for ($index = 0; $index -lt $pageBytes.Length; $index++) {
+            if ($pageBytes[$index] -eq 0x0A -and ($index -eq 0 -or $pageBytes[$index - 1] -ne 0x0D)) {
+                $pageBareLf++
+            }
+        }
+        if ($pageBareLf -gt 0) {
+            Write-Host ("  FAIL  {0}  ({1} bare LF line ending(s); installer pages need CRLF)" -f `
+                        $pageRelative, $pageBareLf)
+            $failures += $pageRelative
+        }
+    }
+
     if ($failures.Count -gt 0) {
         throw ("{0} script(s) would not run correctly on their target host: {1}" -f `
                $failures.Count, ($failures -join ', '))
