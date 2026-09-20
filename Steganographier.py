@@ -2415,6 +2415,37 @@ class Steganographier:
         
         return passwords
 
+    # 7-Zip 分两步解压时创建的临时目录前缀（见 _extract_with_7zip）。那些目录里的是中间
+    # 产物而非解出来的结果，确认“有没有解出东西”时必须排除；万一清理失败，也不能把中间
+    # 产物当成结果，否则又会在什么都没解出来时删掉原件。
+    EXTRACT_TEMP_DIR_PREFIXES = ("7z_", "7z_unzip_")
+
+    def snapshot_output_files(self, output_dir, exclude_path=None):
+        """输出目录内的文件快照：相对路径 -> (大小, mtime 纳秒)。
+
+        用于判断一次解除隐写到底有没有写出文件。不能用某个解压方法的返回值代替：
+        7-Zip 是由子进程直接把文件写进输出目录的，进程内的计数覆盖不到它；而空压缩包、
+        只含目录项的压缩包、成员名全部被过滤掉的压缩包，都会让方法返回成功却什么都没写。
+        """
+        snapshot = {}
+        excluded = os.path.normcase(os.path.abspath(exclude_path)) if exclude_path else None
+        for root, _dirs, files in os.walk(output_dir):
+            relative_root = os.path.relpath(root, output_dir)
+            parts = [] if relative_root == "." else relative_root.split(os.sep)
+            if any(part.startswith(self.EXTRACT_TEMP_DIR_PREFIXES) for part in parts):
+                continue
+            for file_name in files:
+                full_path = os.path.join(root, file_name)
+                if excluded and os.path.normcase(os.path.abspath(full_path)) == excluded:
+                    continue
+                try:
+                    status = os.stat(full_path)
+                except OSError:
+                    continue
+                key = file_name if relative_root == "." else os.path.join(relative_root, file_name)
+                snapshot[key] = (status.st_size, status.st_mtime_ns)
+        return snapshot
+
     def reveal_file(self, input_file_path, password=None, type_option_var=None, delete_original=True, auto_rename_on_conflict=None):
         """
         智能解除隐写函数 - 优先使用7-Zip高速解压
@@ -2436,6 +2467,8 @@ class Steganographier:
 
         output_dir = os.path.dirname(input_file_path)
         if not output_dir: output_dir = '.' # 如果是空字符串,使用当前目录
+        # 解除前后各拍一次快照，据此判断这次到底有没有写出文件（见 snapshot_output_files）。
+        files_before_reveal = self.snapshot_output_files(output_dir, input_file_path)
             
         success = False
         successful_method = None
@@ -2545,7 +2578,13 @@ class Steganographier:
                 continue
 
         # 处理结果
-        if success:
+        if success and self.snapshot_output_files(output_dir, input_file_path) == files_before_reveal:
+            # 有方法报了成功，但输出目录里没多出任何文件：压缩包里只有目录项、成员名全部
+            # 被 sanitize_path 过滤掉、空压缩包，或 7-Zip 解到临时目录后搬运失败。
+            # 此时删原件就是纯粹的数据丢失——内容只存在于这个隐写文件里——所以保留它。
+            self.log(f"解压方法报告成功（{successful_method}），但输出目录里没有出现任何新文件；"
+                     "已保留原始隐写文件以免数据丢失")
+        elif success:
             if delete_original:
                 try:
                     os.remove(input_file_path)
@@ -2819,7 +2858,7 @@ class Steganographier:
                                     if self.progress_callback:
                                         self.progress_callback(processed_size, total_size_hidden)
                                     last_progress_update = processed_size
-                                    
+
                     except (OSError, IOError) as e:
                         self.log(f"无法创建文件 {output_file_path}: {e}")
                         continue
@@ -2911,7 +2950,7 @@ class Steganographier:
                                     if self.progress_callback:
                                         self.progress_callback(processed_size, total_size_hidden)
                                     last_progress_update = processed_size
-                                    
+
                     except (OSError, IOError) as e:
                         self.log(f"无法创建文件 {output_file_path}: {e}")
                         continue
