@@ -76,8 +76,10 @@ VSVersionInfo(
         version = $version
         commit = $commit
         created_at_utc = [DateTime]::UtcNow.ToString("o")
-        python = (& python --version 2>&1 | Out-String).Trim()
-        pyinstaller = (& python -m PyInstaller --version 2>&1 | Out-String).Trim()
+        # Both probes can emit warnings on stderr (e.g. the pkg_resources deprecation
+        # notice); the version is the last line, so take only that.
+        python = (& python --version 2>&1 | Select-Object -Last 1 | Out-String).Trim()
+        pyinstaller = (& python -m PyInstaller --version 2>&1 | Select-Object -Last 1 | Out-String).Trim()
     }
     $manifest | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $stage "build-manifest.json")
 
