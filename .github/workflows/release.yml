@@ -40,9 +40,14 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install -r requirements-build.txt
+          # The installer script uses the Inno Setup 6.7 appearance directives
+          # (WizardBackImageFile and friends), and the runner image ships an Inno
+          # Setup that may be older, so upgrade rather than only installing when
+          # the compiler is absent.
+          choco upgrade innosetup --no-progress -y
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path -LiteralPath $iscc)) {
-            choco install innosetup --no-progress -y
+            throw "Inno Setup 6 compiler not found at $iscc after install."
           }
       - name: Build and verify release assets
         shell: pwsh

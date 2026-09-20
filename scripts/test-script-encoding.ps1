@@ -88,9 +88,10 @@ try {
     }
 
     # Inno displays these files at run time (the licence page and the two
-    # information pages). It needs the UTF-8 BOM to render Chinese correctly, and
-    # CRLF; a plain-text editor or an automated rewrite drops the BOM easily, and
-    # the resulting mojibake only shows up in the installer UI.
+    # information pages). Since Inno Setup 6.3 these may be UTF-8 with or without a
+    # BOM, so a BOM is NOT strictly required - this rule is a convention, chosen
+    # because an explicit BOM cannot be misread and the repo is otherwise UTF-8.
+    # CRLF is required: the text is rendered in a memo control.
     $innoPageFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot "installer") -File -Filter "*.txt" -ErrorAction SilentlyContinue)
     if ($innoPageFiles.Count -eq 0) {
         throw "No installer text pages were found to check."

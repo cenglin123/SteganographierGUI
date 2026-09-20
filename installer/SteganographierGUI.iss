@@ -31,7 +31,29 @@ InfoBeforeFile=BeforeInstall.txt
 InfoAfterFile=AfterInstall.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
+; --- Appearance -----------------------------------------------------------------
+; The artwork is the author's own, recovered from the v1.3.9 SFX material: a
+; vertical 隐写者 wordmark with the author credit, black on white. The old
+; installer's look was a white wizard with that wordmark down the left side, so
+; this reproduces it rather than inventing a theme. Both PNGs are committed; the
+; repository does not depend on that archive surviving.
+;
+; Light only, deliberately. Inno's "dynamic" appearance needs a separate asset per
+; appearance, but the DynamicDark directives exist for exactly four settings -
+; WizardImageBackColor, WizardStyleFile, WizardBackColor and WizardBackImageFile -
+; and NOT for WizardImageFile or WizardSmallImageFile. A black wordmark therefore
+; cannot adapt to a dark wizard, and following the system theme would render it
+; invisible on a dark background.
+;
+; PNG for these two directives requires Inno Setup 6.6 or later, which is why the
+; release workflow upgrades Inno Setup rather than only installing it when absent.
 WizardStyle=modern
+WizardImageFile=wizard-logo.png
+WizardSmallImageFile=wizard-small.png
+; Inno Setup 6 defaults DisableWelcomePage to yes, so without this the wizard opens
+; on the licence page and the large image (the wordmark) is only ever seen on the
+; final page. Measured against the compiled installer, not assumed.
+DisableWelcomePage=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
@@ -61,12 +83,20 @@ Name: "{autodesktop}\隐写者"; Filename: "{app}\SteganographierGUI.exe"; IconF
 Filename: "{app}\SteganographierGUI.exe"; Description: "启动 SteganographierGUI"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// v1.3.9 ran InstallElevated.cmd from its SFX script, so registering the
-// right-click menu and the steg command was part of installing, and then opened
-// the install folder (Setup=explorer.exe .). Both are restored here.
+// v1.3.9 ran its SFX script commands in this order (per the authoring worksheet
+// kept with the old packaging material):
+//     02-解除隐写者右键菜单安装.bat   <- clear first
+//     01-安装隐写者到右键菜单.bat     <- then install
+//     explorer.exe .
+// The clear-then-install ordering is restored here: it makes a reinstall
+// idempotent and sweeps up leftovers written by older layouts (the uninstaller's
+// key list covers the pre-1.3.10 names that this installer never creates). On a
+// clean machine it is a no-op, because that script treats an absent key as
+// success. Its failure is logged rather than fatal - it must not be able to block
+// the installation.
 //
-// The menu step is not a [Run] entry because [Run] ignores a non-zero exit code,
-// which would let a failed registration pass silently. The folder is opened with
+// Neither step is a [Run] entry because [Run] ignores a non-zero exit code, which
+// would let a failed registration pass silently. The folder is opened with
 // ShellExec rather than a [Run] Parameters value so the path is passed as its own
 // argument, with no quote-escaping to get wrong for an install path with spaces.
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -74,19 +104,25 @@ var
   ResultCode: Integer;
   InstallRoot: String;
   Arguments: String;
+  PowerShell: String;
 begin
   if CurStep <> ssPostInstall then
     Exit;
 
   InstallRoot := ExpandConstant('{app}');
+  PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
 
   if WizardIsTaskSelected('contextmenu') then
   begin
     Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallRoot +
-                 '\Install-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
+                 '\Uninstall-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
+    if (not Exec(PowerShell, Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode))
+       or (ResultCode <> 0) then
+      Log('Context-menu pre-clean exited with code ' + IntToStr(ResultCode) + '; continuing.');
 
-    if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-                 Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode))
+    Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallRoot +
+                 '\Install-ContextMenu.ps1" -InstallRoot "' + InstallRoot + '"';
+    if (not Exec(PowerShell, Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode))
        or (ResultCode <> 0) then
     begin
       MsgBox('右键菜单安装失败（退出码 ' + IntToStr(ResultCode) + '）。' + #13#10 + #13#10 +

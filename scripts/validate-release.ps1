@@ -40,6 +40,8 @@ $requiredPaths = @(
     "installer/BeforeInstall.txt",
     "installer/AfterInstall.txt",
     "installer/Languages/ChineseSimplified.isl",
+    "installer/wizard-logo.png",
+    "installer/wizard-small.png",
     "tools/7z.exe",
     "tools/mkvmerge.exe",
     "tools/mkvextract.exe",
