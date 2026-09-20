@@ -46,6 +46,16 @@ Installs dropped by the old WinRAR-SFX flow have no uninstall entry and mix runt
 3. Rename the old directory aside (do not delete it yet), run the official installer fresh, restore the preserved items into `{app}`, then verify context-menu entries and shortcuts point at the new executable name (`SteganographierGUI.exe`, capital I).
 4. Remove the renamed old directory only after the new install passes a smoke check.
 
+## Build environment constraints
+
+The release build pins `python-version: "3.8"`, and that pin is a compatibility requirement rather than an old default: **Python 3.8 is the last CPython that runs on Windows 7**. CPython 3.9 raised the floor to Windows 8.1, because `python.exe` links against `api-ms-win-core-path-l1-1-0.dll` — an API set Windows 7 does not have — so it fails to start with a missing-DLL error ([bpo-40740](https://bugs.python.org/issue40740)); [PEP 11](https://peps.python.org/pep-0011/) ties supported platforms to Microsoft's support window. The application ships as a frozen bundle, so the interpreter used at build time sets the minimum Windows version of the released binaries.
+
+Consequences:
+
+- Do not bump the pin to a newer minor version on the grounds that 3.8 has reached the end of upstream support. Doing so silently ends Windows 7 support for every user, and nothing in CI would fail.
+- `ci.yml` pins the same version deliberately. Validating on a newer interpreter would exercise a combination that is never shipped.
+- A local build with a different interpreter produces different binaries with different checksums. That is expected and is not a defect in either build; the CI artifacts and their `SHA256SUMS.txt` are the authoritative ones.
+
 ## Known historical inconsistencies (do not "fix")
 
 - Tags `v1.3.8` and `v1.3.9` are lightweight tags on the same commit (`b307541`); their trees predate VERSION/scripts/CI, so re-publishing either tag cannot succeed. Leave them alone.
