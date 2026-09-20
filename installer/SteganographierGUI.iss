@@ -54,20 +54,49 @@ WizardSmallImageFile=wizard-small.png
 ; on the licence page and the large image (the wordmark) is only ever seen on the
 ; final page. Measured against the compiled installer, not assumed.
 DisableWelcomePage=no
+; ShowLanguageDialog defaults to yes, which puts a "Select Language" dialog in front
+; of every install. auto shows it only when the UI language matches none of the
+; [Languages] entries, so a Chinese system goes straight in as Chinese and an English
+; system as English, while any other system can still pick. LanguageDetectionMethod
+; is already uilanguage by default and is stated for clarity: it matches the Windows
+; UI language Microsoft recommends, not the regional locale.
+ShowLanguageDialog=auto
+LanguageDetectionMethod=uilanguage
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 
 [Languages]
+; Both .isl files declare a LanguageID ($0804 for Simplified Chinese, $0409 for
+; English), which is what Setup matches against the user's UI language.
 Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; AppName is Latin, so the [name] / %1 placeholders would render the Chinese wizard
+; with an English product name in the title bar and the welcome heading. Give the
+; Chinese language its own wording; English keeps the stock Default.isl strings,
+; which already read correctly.
+chinesesimp.SetupWindowTitle=安装 - 隐写者
+chinesesimp.WelcomeLabel1=欢迎使用 隐写者 安装向导
+
+[CustomMessages]
+; [Tasks] descriptions are literal text, so hard-coding them left the English
+; wizard showing Chinese task names. Route them through CustomMessages instead, so
+; each language supplies its own wording.
+chinesesimp.StegAdditionalTasks=附加任务：
+english.StegAdditionalTasks=Additional tasks:
+chinesesimp.StegTaskContextMenu=安装右键菜单和 steg 命令（推荐）
+english.StegTaskContextMenu=Install the right-click menu and the steg command (recommended)
+chinesesimp.StegTaskDesktopIcon=创建桌面快捷方式
+english.StegTaskDesktopIcon=Create a desktop shortcut
 
 [Tasks]
 ; v1.3.9 installed the right-click menu and the steg command as part of setup and
 ; created the desktop shortcut unconditionally; both are default-on here so the
 ; install experience matches, while staying opt-out.
-Name: "contextmenu"; Description: "安装右键菜单和 steg 命令（推荐）"; GroupDescription: "附加任务："
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
+Name: "contextmenu"; Description: "{cm:StegTaskContextMenu}"; GroupDescription: "{cm:StegAdditionalTasks}"
+Name: "desktopicon"; Description: "{cm:StegTaskDesktopIcon}"; GroupDescription: "{cm:StegAdditionalTasks}"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
