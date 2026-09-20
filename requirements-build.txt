@@ -1,2 +1,2 @@
 -r requirements.txt
-pyinstaller==5.13.2
+pyinstaller==6.11.1

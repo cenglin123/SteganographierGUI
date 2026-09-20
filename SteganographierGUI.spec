@@ -42,4 +42,9 @@ coll = COLLECT(
     strip=False,
     upx=True,
     name="SteganographierGUI",
+    # PyInstaller 6 moved the bundled runtime into a _internal subdirectory by
+    # default; stated explicitly so the layout cannot drift back. Without it the
+    # distribution root holds ~70 loose runtime files (python3*.dll, api-ms-win-*,
+    # *.pyd, base_library.zip), which is what v1.3.10 shipped and v1.3.9 did not.
+    contents_directory="_internal",
 )

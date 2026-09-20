@@ -16,7 +16,9 @@ $requiredFiles = @(
     "Uninstall-ContextMenu.ps1",
     "RegistryWrite.ps1",
     "InstallElevated.cmd",
-    "tkinterdnd2\tkdnd\win64\libtkdnd2.9.2.dll",
+    # PyInstaller 6 keeps the bundled runtime in _internal\; the tkinterdnd2 data
+    # files collected by the spec land there too.
+    "_internal\tkinterdnd2\tkdnd\win64\libtkdnd2.9.2.dll",
     "modules\favicon.ico",
     "modules\PW.txt",
     "tools\7z.exe",
@@ -51,6 +53,18 @@ foreach ($licenceName in @("aria2_COPYING.txt", "FFmpeg_LICENSE.txt")) {
 }
 if ((Get-Content -Raw -Encoding UTF8 (Join-Path $stage "VERSION")).Trim() -ne $ExpectedVersion) {
     throw "Packaged VERSION does not match '$ExpectedVersion'."
+}
+
+# Inno's [Files] section skips hidden files, so a hidden item anywhere in the stage
+# is silently dropped from the installer - and if that item is _internal\, the
+# installed program cannot start. v1.3.9 shipped _internal with the hidden attribute,
+# which worked only because it was delivered by a RAR SFX; measured by installing a
+# build with the attribute set and confirming the executable would not run.
+$hiddenItems = @(Get-ChildItem -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Attributes -band [IO.FileAttributes]::Hidden })
+if ($hiddenItems.Count -gt 0) {
+    $sample = ($hiddenItems | Select-Object -First 5 | ForEach-Object { $_.FullName }) -join '; '
+    throw "The stage contains $($hiddenItems.Count) hidden item(s), which the installer would omit: $sample"
 }
 
 $process = Start-Process -FilePath (Join-Path $stage "SteganographierGUI.exe") -ArgumentList "--version" -Wait -PassThru
