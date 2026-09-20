@@ -1,7 +1,7 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    将本机 v1.3.8.x 旧安装（WinRAR 自解压手放，无卸载项）升级为由官方 Inno 安装包管理的 v1.3.10。
+    将本机 v1.3.8.x 旧安装（WinRAR 自解压手放，无卸载项）升级为由官方 Inno 安装包管理的 v1.3.11。
 .NOTES
     由仓库 docs/RELEASING.md「Upgrading a machine installed by the legacy SFX method」流程生成。
     运行方式：右键『以管理员身份运行』本 .cmd，或在提升的 PowerShell 中执行本 .ps1。
@@ -64,10 +64,10 @@ function Invoke-RobocopyMirror {
 }
 
 # ===== 可调参数 =====
+$ReleaseTag   = 'v1.3.11'
 $InstallDir   = 'C:\Program Files\SteganographierGUI'
 $OldName      = 'C:\Program Files\SteganographierGUI.old-1382'
-$SetupExe     = 'D:\Media\releases\SteganographierGUI_v1.3.10_installer.exe'
-$SetupSha256  = 'c0b1ebcb05310863543f0e1751e42e20e2108038863ccb9831503678a1b3d1ba'
+$SetupExe     = "D:\Media\releases\SteganographierGUI_${ReleaseTag}_installer.exe"
 # context-menu 脚本所在仓库：由本脚本自身位置推导（scripts\upgrade\ → 仓库根），不硬编码个人路径。
 $RepoRoot     = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'context-menu\Uninstall-ContextMenu.ps1'))) {
@@ -87,13 +87,38 @@ function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 Assert-Admin
 
 # --- 0. 校验安装包哈希 ---
-Step '校验官方安装包 SHA-256'
+# 期望值取自该 Release 自己发布的 SHA256SUMS.txt，而不是写在脚本里：CI 用 python.org
+# 3.8 构建，本机是 Anaconda 3.11，同一份源码产出的安装包哈希并不相同，硬编码的哈希
+# 只会让脚本在下一次发版后失效。这样写也让下面的报错信息名副其实。
+Step "校验官方安装包 SHA-256（对照 Release $ReleaseTag 的 SHA256SUMS.txt）"
 if (-not (Test-Path -LiteralPath $SetupExe)) {
     throw "安装包不存在：$SetupExe（可能又被 Defender 拦截；确认 D:\Media\releases 在排除列表中后重新下载）"
 }
-if ((Get-FileHash -LiteralPath $SetupExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $SetupSha256) {
-    throw "安装包哈希与 GitHub Release v1.3.10 的 SHA256SUMS.txt 不符：$SetupExe"
+$setupLeaf = Split-Path -Leaf $SetupExe
+$sumsUrl = "https://github.com/cenglin123/SteganographierGUI/releases/download/$ReleaseTag/SHA256SUMS.txt"
+try {
+    $sumsResponse = Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -TimeoutSec 60
+} catch {
+    throw "无法读取 $sumsUrl ：$($_.Exception.Message)"
 }
+# .Content 实测在 Windows PowerShell 5.1 与 PowerShell 7 上都返回 byte[]（响应头没有可
+# 识别的 charset 时 .NET 给的就是字节），而直接对 byte[] 做 -split 会静默得到 null 而不是
+# 报错。仍按类型分支：string 分支是为了不把这个观察当成前提。
+$sumsText = if ($sumsResponse.Content -is [byte[]]) {
+    [Text.Encoding]::UTF8.GetString($sumsResponse.Content)
+} else {
+    [string]$sumsResponse.Content
+}
+$sumsLines = $sumsText -split "`r?`n"
+$sumsLine = $sumsLines | Where-Object { $_.Trim() } |
+    Where-Object { ($_ -split '\s+')[-1] -eq $setupLeaf } | Select-Object -First 1
+if (-not $sumsLine) { throw "Release $ReleaseTag 的 SHA256SUMS.txt 中没有 $setupLeaf ：$sumsUrl" }
+$SetupSha256 = ($sumsLine -split '\s+')[0].ToLowerInvariant()
+$actualSha256 = (Get-FileHash -LiteralPath $SetupExe -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualSha256 -ne $SetupSha256) {
+    throw "安装包哈希与 Release $ReleaseTag 的 SHA256SUMS.txt 不符：$SetupExe`n  期望 $SetupSha256（来自 $sumsUrl）`n  实际 $actualSha256"
+}
+Write-Host "    ok：$actualSha256"
 
 # --- 1. 二次备份运行时用户数据（即便已有整目录快照，也再拉一份最新的） ---
 Step '备份 PW.txt / config.json / logs 到时间戳目录'
@@ -193,7 +218,7 @@ if (Test-Path -LiteralPath $OldName) { throw "$OldName 已存在，先手工处�
 if (Test-Path -LiteralPath $InstallDir) { Rename-Item -LiteralPath $InstallDir -NewName (Split-Path -Leaf $OldName) }
 
 # --- 6. 静默全新安装 ---
-Step '运行官方 v1.3.10 安装包（静默）'
+Step "运行官方 $ReleaseTag 安装包（静默）"
 if (-not (Test-Path -LiteralPath $SetupExe)) { throw "安装包不存在：$SetupExe" }
 $p = Start-Process -FilePath $SetupExe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
 if ($p.ExitCode -ne 0) {
@@ -246,7 +271,7 @@ $newExe = Join-Path $InstallDir 'SteganographierGUI.exe'
 if (-not (Test-Path -LiteralPath $newExe)) { throw '新主程序不存在！' }
 $ver = (& cmd.exe /c "`"$newExe`" --version 2>&1" | Out-String).Trim()
 Write-Host "    exe --version => $ver"
-if ($ver -notmatch '1\.3\.10') { throw '版本输出不含 1.3.10' }
+if ($ver -notmatch [regex]::Escape($ReleaseTag.TrimStart('v'))) { throw "版本输出不含 $($ReleaseTag.TrimStart('v'))" }
 $pwSize = (Get-Item -LiteralPath (Join-Path $InstallDir 'modules\PW.txt')).Length
 if ($pwSize -lt 1000) { throw "PW.txt 疑似被占位符覆盖（仅 $pwSize 字节）！检查第 7 步。" }
 Write-Host "    PW.txt = $pwSize 字节（真密码本完好）"
