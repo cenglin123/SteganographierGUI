@@ -23,6 +23,8 @@ GitHub Actions builds the Windows portable archive and installer from a version 
 
 The workflow refuses mismatched tags and versions, verifies the packaged executable and required runtime files, and publishes a portable ZIP, an Inno Setup installer, and `SHA256SUMS.txt`. To retry a failed build for an existing unpublished tag, run the Release workflow manually and supply that tag.
 
+Release notes are generated from the commit history, so anything the generated list cannot express — why a previous version must not be used, what a defect actually was — has to be written down. Put that text in `.github/release-notes/<tag>.md` and the publish job prepends it to the generated notes. The file is named after the version deliberately: one shared preamble would keep repeating the previous release's warning until somebody remembered to clear it, whereas a tag without such a file simply publishes the generated notes alone. The file is read from the tagged commit, so it must be committed before the tag is pushed.
+
 ## Mirror a release locally
 
 Run the following from Task Scheduler or a trusted local shell:

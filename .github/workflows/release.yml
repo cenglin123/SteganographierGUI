@@ -70,6 +70,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Needed by the Publish step below to read .github/release-notes/<tag>.md. Pinned
+      # to the same ref as the build job, so a workflow_dispatch rebuild reads the notes
+      # that belong to the tag being rebuilt rather than whatever main says today.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-*
@@ -87,8 +93,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Prepended to the generated notes when it exists. The file is named after the
+          # version on purpose: one shared preamble would keep repeating the previous
+          # release's warning until somebody remembered to clear it, while a missing file
+          # simply means no preamble. See docs/RELEASING.md.
+          NOTES_ARGS=()
+          NOTES_FILE=".github/release-notes/${RELEASE_TAG}.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            NOTES_ARGS=(--notes "$(cat "$NOTES_FILE")")
+            echo "Prepending release notes from $NOTES_FILE"
+          else
+            echo "No $NOTES_FILE; publishing generated notes only."
+          fi
           gh release create "$RELEASE_TAG" artifacts/* \
             --repo "${{ github.repository }}" \
             --verify-tag \
             --generate-notes \
-            --title "$RELEASE_TAG"
+            --title "$RELEASE_TAG" \
+            ${NOTES_ARGS[@]+"${NOTES_ARGS[@]}"}
