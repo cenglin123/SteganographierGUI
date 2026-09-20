@@ -22,13 +22,11 @@ OutputDir={#OutputDir}
 OutputBaseFilename=SteganographierGUI_v{#AppVersion}_installer
 SetupIconFile=..\modules\favicon.ico
 UninstallDisplayIcon={app}\modules\favicon.ico
-; Restore the wizard pages the v1.3.9 RAR SFX carried in its script
-; (License=/Text=/TextDone=). Paths are relative to this script's directory,
-; matching SetupIconFile above. The three files are build inputs only and are
-; not copied into {app}.
-LicenseFile=EULA.txt
-InfoBeforeFile=BeforeInstall.txt
-InfoAfterFile=AfterInstall.txt
+; The wizard pages the v1.3.9 RAR SFX carried in its script (License=/Text=/TextDone=)
+; are declared per language under [Languages] below rather than here: the SFX had one
+; page set for one language, while this installer ships two and each needs its own.
+; Those files are build inputs only and are not copied into {app}; their paths are
+; relative to this script's directory, matching SetupIconFile above.
 Compression=lzma2/ultra64
 SolidCompression=yes
 ; --- Appearance -----------------------------------------------------------------
@@ -69,8 +67,13 @@ PrivilegesRequired=admin
 [Languages]
 ; Both .isl files declare a LanguageID ($0804 for Simplified Chinese, $0409 for
 ; English), which is what Setup matches against the user's UI language.
-Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
+;
+; LicenseFile / InfoBeforeFile / InfoAfterFile set here override the [Setup]
+; directives for that language alone, which is how the English wizard stops showing
+; Chinese pages. The _en files are the author's own English wording, not a
+; translation of the Chinese ones.
+Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"; LicenseFile: "EULA.txt"; InfoBeforeFile: "BeforeInstall.txt"; InfoAfterFile: "AfterInstall.txt"
+Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: "EULA_en.txt"; InfoBeforeFile: "BeforeInstall_en.txt"; InfoAfterFile: "AfterInstall_en.txt"
 
 [Messages]
 ; AppName is Latin, so the [name] / %1 placeholders would render the Chinese wizard

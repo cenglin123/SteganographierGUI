@@ -1,0 +1,10 @@
+﻿The installation of Steganographier is about to begin.
+
+To change the installation location, please return to the "Select Destination Location" page.
+
+If the specified destination folder does not exist, the installer will create it automatically.
+
+The right-click menu and the steg command will be registered together during the installation process; if you do not need them, you can return to the "Additional Tasks" page to cancel.
+
+Bug reports and suggestions:
+https://github.com/cenglin123/SteganographierGUI

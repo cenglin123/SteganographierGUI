@@ -1,0 +1,9 @@
+﻿The Steganographier program has been successfully installed!
+
+1. Right-click on an empty area of the folder page to open the Steganographier GUI, or you can launch the program from the desktop shortcut.
+
+2. Right-click on a file or folder to quickly perform steganography / de-steganography operations.
+
+3. If the command line prompts that the steg command cannot be found, please reopen the terminal (or restart Windows Explorer) and try again.
+
+4. The package comes with DownKyi-1.6.1 [Bilibili video download tool], which can be used to download Bilibili videos as steganographic covers. Please store the videos in the cover_video folder.

@@ -1,0 +1,31 @@
+﻿Software Introduction: This software ("Steganographier", "隐写者") is a steganography tool that can embed data resources into MP4 video files.
+
+Before you download, install, or use this software, please read and understand all of the following terms carefully. Once you install, copy, or otherwise use this software, it means that you fully accept all terms under this agreement. If you do not agree with any part of this agreement, please do not install or use this software.
+
+1. License Authorization
+
+1.1 The author of this software authorizes you to install and use this software free of charge for personal learning and non-commercial purposes.
+
+2. Restrictions on Conduct
+
+2.1 Prohibition of Commercial Use: Any form of commercial sale, rental, licensing, or use for other commercial purposes of this software is prohibited.
+
+2.2 Prohibition of Illegal Use: The intended purpose of this software is to protect the security of personal information. You must not use this software for any purpose that violates laws and regulations or for criminal activities. All consequences arising from your violation of this provision shall be borne by you alone and shall have nothing to do with the author of this software.
+
+2.3 Prohibition of Malicious Modification and Distribution: Any unintended packaging, modification, reverse engineering, decompilation, or disassembly of this software is prohibited, including but not limited to the implantation of malicious code, Trojan viruses, advertisements, or rogue software.
+
+3. Disclaimer and Limitation of Liability
+
+3.1 Provided As Is: This software is provided on an "as is" and "as available" basis, and the author provides no warranties of any kind, whether express or implied. You use this software at your own risk.
+
+3.2 No Warranty Statement: The author does not guarantee that this software can meet all your needs, nor does the author guarantee that the operation of the software will be uninterrupted or error-free. Under no circumstances shall the author be liable for any direct, indirect, incidental, special, or consequential damages (including but not limited to data loss, loss of profits, business interruption, or file corruption) caused by the use of or inability to use this software.
+
+4. Copyright Statement
+
+4.1 All rights to this software (including but not limited to copyright, trademark rights, and all other intellectual property rights) belong to the author. This agreement does not transfer to you any intellectual property rights related to this software.
+
+5. Acceptance of Agreement
+
+The final right of interpretation of this agreement belongs to the author Cenglinjinran.
+
+If you fully agree to all of the above terms, please click the "Accept" button to continue the installation.
