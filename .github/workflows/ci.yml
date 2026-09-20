@@ -39,3 +39,4 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-context-menu-registry-write.ps1
           .\scripts\test-registry-delete-safety.ps1
           python .\scripts\test-cli-temp-archive.py
+          python .\scripts\test-mp4-free-atom-format.py
