@@ -818,6 +818,7 @@ class SteganographierGUI:
         self.auto_clear_after_complete = False  # 执行完成后自动清空窗口的选项
         self.delete_original_after_reveal = True  # 解除隐写后默认删除原始文件
         self.auto_rename_on_conflict = False  # 解除隐写时遇到同名文件是否自动重命名
+        self.auto_rename_hide_on_conflict = False  # 隐写时遇到同名输出文件是否自动重命名
         self.cover_video_options = []
         
         self.hash_modifier_process = None
@@ -1083,6 +1084,18 @@ class SteganographierGUI:
             variable=self.auto_rename_var,
         )
         self.auto_rename_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
+
+        # 第二行复选框：隐写输出与解除隐写共用同一套重名处理策略（issue #37）
+        link_check_row2 = ttk.Frame(button_frame)
+        link_check_row2.pack(fill="x", pady=4)
+
+        self.auto_rename_hide_var = tk.BooleanVar(value=self.auto_rename_hide_on_conflict)
+        self.auto_rename_hide_checkbox = tk.Checkbutton(
+            link_check_row2,
+            text="隐写输出重名自动改名",
+            variable=self.auto_rename_hide_var,
+        )
+        self.auto_rename_hide_checkbox.pack(side=tk.LEFT, padx=20, pady=5)
 
         # 超链接放在下一行
         link_row = ttk.Frame(button_frame)
@@ -1365,6 +1378,8 @@ class SteganographierGUI:
         total_files = len(hide_file_paths) + len(reveal_file_paths)
         
         # 5. 隐写流程
+        self.steganographier.auto_rename_hide_on_conflict = self.auto_rename_hide_var.get()
+        self.steganographier.reset_reserved_hide_outputs()  # 清空上一批次的输出路径占位
         processed_files = 0
         for input_file_path in hide_file_paths:
             if input_file_path:
@@ -1488,6 +1503,7 @@ class SteganographierGUI:
                 self.auto_clear_after_complete = config.get('auto_clear_after_complete', False)
                 self.delete_original_after_reveal = config.get('delete_original_after_reveal', True)
                 self.auto_rename_on_conflict = config.get('auto_rename_on_conflict', False)
+                self.auto_rename_hide_on_conflict = config.get('auto_rename_hide_on_conflict', False)
 
     def save_config(self):
         config = {
@@ -1498,7 +1514,8 @@ class SteganographierGUI:
             'output_cover_video_name_mode': self.output_cover_video_name_mode_var.get(),
             'auto_clear_after_complete': self.auto_clear_var.get(),
             'delete_original_after_reveal': self.delete_after_reveal_var.get(),
-            'auto_rename_on_conflict': self.auto_rename_var.get()
+            'auto_rename_on_conflict': self.auto_rename_var.get(),
+            'auto_rename_hide_on_conflict': self.auto_rename_hide_var.get()
         }
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=4)
@@ -1612,6 +1629,8 @@ class Steganographier:
         self.progress_callback              = None            # 进度条回调参数
         self.cover_video_path               = None            # 包含完整路径的外壳文件
         self.auto_rename_on_conflict        = False           # 解除隐写时遇到同名文件是否自动重命名
+        self.auto_rename_hide_on_conflict   = False           # 隐写时遇到同名输出文件是否自动重命名
+        self._reserved_hide_outputs         = set()           # 本批次已分配的隐写输出路径，防止同批次重复分配
 
     def init_log_file(self):
         """初始化日志文件"""
@@ -1732,6 +1751,36 @@ class Steganographier:
     def _maybe_log_rename(self, original_path, resolved_path):
         if resolved_path != original_path:
             self.log(f"检测到重名，自动重命名为: {os.path.basename(resolved_path)}")
+
+    def reset_reserved_hide_outputs(self):
+        """清空本批次已占用的隐写输出路径集合（每批次开始时调用）"""
+        self._reserved_hide_outputs = set()
+
+    def _resolve_hide_conflict_path(self, output_file_path):
+        """隐写输出路径冲突处理：开启自动改名时生成不冲突的路径，命名格式与解除隐写一致。
+
+        已分配的路径会记入 _reserved_hide_outputs 预先占位，避免同批次多个文件拿到相同编号。
+        """
+        if not self.auto_rename_hide_on_conflict or not output_file_path:
+            return output_file_path
+
+        key = os.path.normcase(os.path.abspath(output_file_path))
+        if key not in self._reserved_hide_outputs and not os.path.exists(output_file_path):
+            self._reserved_hide_outputs.add(key)
+            return output_file_path
+
+        base, ext = os.path.splitext(output_file_path)
+        counter = 1
+        while True:
+            if ext:
+                candidate = f"{base} ({counter}){ext}"
+            else:
+                candidate = f"{base} ({counter})"
+            cand_key = os.path.normcase(os.path.abspath(candidate))
+            if cand_key not in self._reserved_hide_outputs and not os.path.exists(candidate):
+                self._reserved_hide_outputs.add(cand_key)
+                return candidate
+            counter += 1
 
     def _extract_zip_members(self, zip_file, output_dir):
         """通用ZIP解压流程，支持自动重命名"""
@@ -2362,10 +2411,14 @@ class Steganographier:
             elif output_option == '随机文件名':
                 output_file_path = os.path.join(os.path.split(input_file_path)[0], 
                                         generate_random_filename(length=16) + f'_{processed_files+1}.mkv')
-            self.log(f"output_file_path2: {output_file_path}")    
-        
-        return output_file_path  
-    
+            self.log(f"output_file_path2: {output_file_path}")
+
+        # 隐写输出与解除隐写共用同一套重名处理策略（issue #37）：开启自动改名时
+        # 若目标路径已存在（或本批次已分配）则生成不冲突的路径，避免静默覆盖已有产物。
+        resolved_path = self._resolve_hide_conflict_path(output_file_path)
+        self._maybe_log_rename(output_file_path, resolved_path)
+        return resolved_path
+
     def add_empty_mdat_box(self, file):
         mdat_size = 8  # Minimum box size
         mdat_box = mdat_size.to_bytes(4, byteorder='big') + b'mdat'
